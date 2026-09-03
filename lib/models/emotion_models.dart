@@ -160,3 +160,65 @@ class Conversation {
         updatedAt: DateTime.parse(json['updatedAt']),
       );
 }
+
+/// 用户画像（长期记忆）
+class UserProfile {
+  final String id;
+  List<String> preferenceTags;
+  final DateTime createdAt;
+  DateTime updatedAt;
+
+  UserProfile({
+    required this.id,
+    this.preferenceTags = const [],
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'preferenceTags': preferenceTags,
+        'createdAt': createdAt.toIso8601String(),
+        'updatedAt': updatedAt.toIso8601String(),
+      };
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+        id: json['id'],
+        preferenceTags: (json['preferenceTags'] as List<dynamic>?)?.cast<String>() ?? [],
+        createdAt: DateTime.parse(json['createdAt']),
+        updatedAt: DateTime.parse(json['updatedAt']),
+      );
+}
+
+/// 对话摘要（情景记忆）
+class ConversationSummary {
+  final String id;
+  final String conversationId;
+  final String summary;
+  final List<String> emotionTags;
+  final DateTime createdAt;
+
+  ConversationSummary({
+    required this.id,
+    required this.conversationId,
+    required this.summary,
+    this.emotionTags = const [],
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'conversationId': conversationId,
+        'summary': summary,
+        'emotionTags': emotionTags,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory ConversationSummary.fromJson(Map<String, dynamic> json) => ConversationSummary(
+        id: json['id'],
+        conversationId: json['conversationId'],
+        summary: json['summary'],
+        emotionTags: (json['emotionTags'] as List<dynamic>?)?.cast<String>() ?? [],
+        createdAt: DateTime.parse(json['createdAt']),
+      );
+}

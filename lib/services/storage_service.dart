@@ -9,6 +9,8 @@ class StorageService {
   static const String _recordsBox = 'emotion_records';
   static const String _conversationsBox = 'conversations';
   static const String _dreamRecordsBox = 'dream_records';
+  static const String _userProfileBox = 'user_profile';
+  static const String _conversationSummaryBox = 'conversation_summaries';
 
   static const String _lockKey = 'treehole_locked';
   static const String _pinKey = 'treehole_pin';
@@ -46,6 +48,8 @@ class StorageService {
     await Hive.openBox<EmotionRecord>(_recordsBox);
     await Hive.openBox<Conversation>(_conversationsBox);
     await Hive.openBox<DreamRecord>(_dreamRecordsBox);
+    await Hive.openBox(_userProfileBox);
+    await Hive.openBox(_conversationSummaryBox);
   }
 
   // ===== 情绪记录 =====
@@ -350,5 +354,53 @@ class StorageService {
       dates.add(date);
       await _settings().put(_fortuneCheckinDatesKey, dates);
     }
+  }
+
+  // ===== 用户画像（长期记忆） =====
+
+  Box _userProfile() => Hive.box(_userProfileBox);
+
+  Future<UserProfile?> getUserProfile() async {
+    final raw = _userProfile().get('profile');
+    if (raw == null) return null;
+    if (raw is Map) {
+      return UserProfile.fromJson(Map<String, dynamic>.from(raw));
+    }
+    return null;
+  }
+
+  Future<void> saveUserProfile(UserProfile profile) async {
+    await _userProfile().put('profile', profile.toJson());
+  }
+
+  // ===== 对话摘要（情景记忆） =====
+
+  Box _summaries() => Hive.box(_conversationSummaryBox);
+
+  Future<List<ConversationSummary>> getAllSummaries() async {
+    final results = <ConversationSummary>[];
+    for (final key in _summaries().keys) {
+      final raw = _summaries().get(key);
+      if (raw is Map) {
+        results.add(ConversationSummary.fromJson(Map<String, dynamic>.from(raw)));
+      }
+    }
+    return results;
+  }
+
+  Future<void> saveSummary(ConversationSummary summary) async {
+    await _summaries().put(summary.id, summary.toJson());
+  }
+
+  Future<void> deleteSummary(String id) async {
+    await _summaries().delete(id);
+  }
+
+  Future<List<ConversationSummary>> searchSummaries(String keyword) async {
+    final all = await getAllSummaries();
+    return all.where((s) =>
+        s.summary.contains(keyword) ||
+        s.emotionTags.any((t) => t.contains(keyword)) ||
+        s.conversationId.contains(keyword)).toList();
   }
 }

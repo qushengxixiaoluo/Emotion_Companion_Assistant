@@ -7,7 +7,9 @@ import '../../app/responsive/responsive_utils.dart';
 import '../../app/config/speech_config.dart';
 import '../../services/emotion_service.dart';
 import '../../services/llm_service.dart';
+import '../../services/function_tools.dart';
 import '../../services/ai_comfort_service.dart';
+import '../../services/agents/orchestrator.dart';
 import '../../services/speech_service.dart';
 import '../../services/storage_service.dart';
 import '../../models/emotion_models.dart';
@@ -34,6 +36,8 @@ class ComfortPageState extends State<ComfortPage> {
   bool _isLoading = false;
   bool _useLlm = true;
   bool _useStream = true;
+  bool _useMultiAgent = false;
+  final AgentOrchestrator _orchestrator = AgentOrchestrator();
   Timer? _typeTimer;
   Timer? _streamDisplayTimer;
   Timer? _cursorBlinkTimer;
@@ -323,7 +327,9 @@ class ComfortPageState extends State<ComfortPage> {
         });
 
         try {
-          final stream = _llmService.chatStream(text);
+          final stream = _useMultiAgent
+              ? _orchestrator.processStream(text)
+              : _llmService.chatStream(text, tools: FunctionTools.toolDefinitions);
           await for (final delta in stream) {
             if (!mounted) break;
             _streamBuffer += delta;
@@ -335,7 +341,9 @@ class ComfortPageState extends State<ComfortPage> {
             _cursorBlinkTimer?.cancel();
             _messages.removeLast();
             _messages.add(_ChatBubble(content: '', isUser: false, emotion: _currentEmotion, isStreaming: true));
-            final response = await _llmService.chat(text);
+            final response = _useMultiAgent
+                ? await _orchestrator.process(text)
+                : await _llmService.chat(text, tools: FunctionTools.toolDefinitions);
             if (mounted) {
               if (response.contains('失败') || response.contains('错误') || response.contains('异常') || response.contains('无法回复')) {
                 _messages.removeLast();
@@ -356,7 +364,9 @@ class ComfortPageState extends State<ComfortPage> {
           if (mounted) {
             _messages.removeLast();
             _messages.add(_ChatBubble(content: '', isUser: false, emotion: _currentEmotion, isStreaming: true));
-            final response = await _llmService.chat(text);
+            final response = _useMultiAgent
+                ? await _orchestrator.process(text)
+                : await _llmService.chat(text, tools: FunctionTools.toolDefinitions);
             if (mounted) {
               if (response.contains('失败') || response.contains('错误') || response.contains('异常') || response.contains('无法回复')) {
                 _messages.removeLast();
@@ -373,7 +383,9 @@ class ComfortPageState extends State<ComfortPage> {
         }
       } else {
         // ===== 非流式模式：先请求，再打字机逐字显示 =====
-        final response = await _llmService.chat(text);
+        final response = _useMultiAgent
+            ? await _orchestrator.process(text)
+            : await _llmService.chat(text, tools: FunctionTools.toolDefinitions);
         if (mounted) {
           if (response.contains('失败') ||
               response.contains('错误') ||
