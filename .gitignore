@@ -96,6 +96,19 @@ app.*.map.json
 # Web
 /web/.dart_tool/
 
+# Flutter web build output that was mistakenly committed at repo root
+# (real sources live in web/; build output belongs in build/web/)
+/canvaskit/
+/icons/
+/favicon.png
+/flutter.js
+/flutter_bootstrap.js
+/flutter_service_worker.js
+/index.html
+/main.dart.js
+/manifest.json
+/version.json
+
 # Linux
 /linux/flutter/ephemeral/
 
