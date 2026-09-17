@@ -95,32 +95,21 @@ void main() {
     });
   });
 
-  group('Memory 模型', () {
-    test('创建记忆实例', () {
-      final memory = Memory(
-        id: 'mem_001',
-        conversationId: 'conv_001',
-        summary: '用户经常在晚上感到焦虑',
-        emotionTags: ['焦虑', '夜晚'],
-        createdAt: DateTime.now(),
-      );
-      expect(memory.id, 'mem_001');
-      expect(memory.summary, '用户经常在晚上感到焦虑');
-    });
-
-    test('Memory 序列化往返', () {
-      final memory = Memory(
+  group('ConversationSummary 完整往返', () {
+    test('toJson/fromJson 往返一致', () {
+      final summary = ConversationSummary(
         id: 'mem_002',
         conversationId: 'conv_002',
         summary: '用户表达了对未来的担忧',
         emotionTags: ['担忧', '未来'],
         createdAt: DateTime(2026, 5, 2, 12, 0, 0),
       );
-      final json = memory.toJson();
-      final restored = Memory.fromJson(json);
-      expect(restored.id, memory.id);
-      expect(restored.summary, memory.summary);
-      expect(restored.emotionTags, memory.emotionTags);
+      final json = summary.toJson();
+      final restored = ConversationSummary.fromJson(json);
+      expect(restored.id, summary.id);
+      expect(restored.summary, summary.summary);
+      expect(restored.emotionTags, summary.emotionTags);
+      expect(restored.createdAt, summary.createdAt);
     });
   });
 

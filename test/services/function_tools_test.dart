@@ -4,8 +4,8 @@ import 'package:emotion_companion/services/function_tools.dart';
 
 void main() {
   group('FunctionTools.toolDefinitions', () {
-    test('定义了 6 个工具', () {
-      expect(FunctionTools.toolDefinitions.length, 6);
+    test('定义了 5 个工具', () {
+      expect(FunctionTools.toolDefinitions.length, 5);
     });
 
     test('所有工具都有正确的类型结构', () {
@@ -43,83 +43,11 @@ void main() {
       expect(names, contains('goodnight_quote'));
     });
 
-    test('包含 weather_query 工具', () {
-      final names = FunctionTools.toolDefinitions.map((t) => t['function']['name']).toList();
-      expect(names, contains('weather_query'));
-    });
-
     test('emotion_analysis 有 text 参数', () {
       final tool = FunctionTools.toolDefinitions.firstWhere((t) => t['function']['name'] == 'emotion_analysis');
       final params = tool['function']['parameters'];
       expect(params['properties']['text'], isA<Map>());
       expect(params['required'], contains('text'));
-    });
-
-    test('weather_query 有 city 参数', () {
-      final tool = FunctionTools.toolDefinitions.firstWhere((t) => t['function']['name'] == 'weather_query');
-      final params = tool['function']['parameters'];
-      expect(params['properties']['city'], isA<Map>());
-      expect(params['required'], contains('city'));
-    });
-  });
-
-  group('executeTool - weather_query', () {
-    test('返回大雪天气', () async {
-      final result = await FunctionTools.executeTool('weather_query', {'city': '北京', 'date': '2026年5月2日'});
-      final json = jsonDecode(result);
-      expect(json['weather'], '大雪');
-    });
-
-    test('返回温度 -15°C', () async {
-      final result = await FunctionTools.executeTool('weather_query', {'city': '上海'});
-      final json = jsonDecode(result);
-      expect(json['temperature'], -15);
-    });
-
-    test('包含城市名', () async {
-      final result = await FunctionTools.executeTool('weather_query', {'city': '深圳'});
-      final json = jsonDecode(result);
-      expect(json['city'], '深圳');
-    });
-
-    test('缺少城市时使用默认值', () async {
-      final result = await FunctionTools.executeTool('weather_query', {});
-      final json = jsonDecode(result);
-      expect(json['city'], '未知');
-    });
-
-    test('缺少日期时使用默认值', () async {
-      final result = await FunctionTools.executeTool('weather_query', {'city': '广州'});
-      final json = jsonDecode(result);
-      expect(json['date'], '今天');
-    });
-
-    test('返回建议', () async {
-      final result = await FunctionTools.executeTool('weather_query', {'city': '北京'});
-      final json = jsonDecode(result);
-      expect(json['suggestion'], isA<String>());
-      expect(json['suggestion'].isNotEmpty, true);
-    });
-
-    test('任何城市都返回相同天气', () async {
-      final result1 = await FunctionTools.executeTool('weather_query', {'city': '北京'});
-      final result2 = await FunctionTools.executeTool('weather_query', {'city': '广州'});
-      final json1 = jsonDecode(result1);
-      final json2 = jsonDecode(result2);
-      expect(json1['weather'], json2['weather']);
-      expect(json1['temperature'], json2['temperature']);
-    });
-
-    test('返回北风3级', () async {
-      final result = await FunctionTools.executeTool('weather_query', {'city': '北京'});
-      final json = jsonDecode(result);
-      expect(json['wind'], '北风3级');
-    });
-
-    test('返回湿度85%', () async {
-      final result = await FunctionTools.executeTool('weather_query', {'city': '北京'});
-      final json = jsonDecode(result);
-      expect(json['humidity'], '85%');
     });
   });
 

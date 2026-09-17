@@ -15,4 +15,20 @@ class EmotionKnowledgeEntry {
     required this.strategies,
     required this.contextTags,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'scenario': scenario,
+        'emotionTags': emotionTags,
+        'strategies': strategies,
+        'contextTags': contextTags,
+      };
+
+  factory EmotionKnowledgeEntry.fromJson(Map<String, dynamic> json) => EmotionKnowledgeEntry(
+        id: json['id'] as String,
+        scenario: json['scenario'] as String,
+        emotionTags: (json['emotionTags'] as List).cast<String>(),
+        strategies: (json['strategies'] as List).cast<String>(),
+        contextTags: (json['contextTags'] as List).cast<String>(),
+      );
 }

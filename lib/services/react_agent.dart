@@ -22,8 +22,7 @@ Observation: 工具返回的结果（由系统自动填入）
 - knowledge_search(query): 搜索心理健康知识库
 - history_query(keyword): 查询对话历史摘要
 - breathing_guide(step): 获取呼吸引导语
-- goodnight_quote(): 获取晚安语录
-- weather_query(city, date): 查询指定城市和日期的天气''';
+- goodnight_quote(): 获取晚安语录''';
 
   static Future<String> run({
     required String userMessage,
@@ -58,6 +57,29 @@ Observation: 工具返回的结果（由系统自动填入）
 
     final lastResponse = await _callLlm(baseUrl: baseUrl, apiKey: apiKey, model: model, messages: messages);
     return lastResponse?.trim() ?? '抱歉，处理过程中遇到困难，请再试一次。';
+  }
+
+  /// 流式入口：执行 ReAct 循环后按小块输出最终回复（配合 UI 打字机效果）
+  static Stream<String> runStream({
+    required String userMessage,
+    required String baseUrl,
+    required String apiKey,
+    required String model,
+    List<Map<String, String>>? contextHistory,
+  }) async* {
+    final result = await run(
+      userMessage: userMessage,
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      model: model,
+      contextHistory: contextHistory,
+    );
+
+    // 按字词块输出，模拟流式节奏
+    final chunks = result.split(RegExp(r'(?<=\n)|(?<=[。！？，…])'));
+    for (final chunk in chunks) {
+      if (chunk.isNotEmpty) yield chunk;
+    }
   }
 
   static Map<String, String>? parseAction(String response) {

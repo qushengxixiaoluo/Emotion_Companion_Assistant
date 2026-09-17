@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:emotion_companion/services/rag_service.dart';
 import 'package:emotion_companion/services/emotion_knowledge_entry.dart';
-import 'package:emotion_companion/services/emotion_knowledge.dart';
 
 void main() {
   group('RagService 关键词加权搜索', () {

@@ -59,7 +59,7 @@ void main() {
     });
 
     test('ID 前缀与分类一致', () {
-      final validPrefixes = ['sadness', 'anxiety', 'anger', 'loneliness', 'suppression', 'happiness'];
+      final validPrefixes = ['sadness', 'anxiety', 'anger', 'loneliness', 'suppression', 'happiness', 'calmness'];
       for (final entry in emotionKnowledgeBase) {
         final prefix = entry.id.split('_').first;
         expect(validPrefixes.contains(prefix), true, reason: '${entry.id} 前缀不匹配');
@@ -68,8 +68,8 @@ void main() {
   });
 
   group('情感知识库合并', () {
-    test('总计 210 条知识条目', () {
-      expect(emotionKnowledgeBase.length, 210);
+    test('总计 245 条知识条目', () {
+      expect(emotionKnowledgeBase.length, 245);
     });
 
     test('每类恰好 35 条', () {
@@ -78,7 +78,7 @@ void main() {
         final prefix = e.id.split('_').first;
         counts[prefix] = (counts[prefix] ?? 0) + 1;
       }
-      for (final prefix in ['sadness', 'anxiety', 'anger', 'loneliness', 'suppression', 'happiness']) {
+      for (final prefix in ['sadness', 'anxiety', 'anger', 'loneliness', 'suppression', 'happiness', 'calmness']) {
         expect(counts[prefix], 35, reason: '$prefix 应有 35 条');
       }
     });
@@ -104,6 +104,7 @@ void main() {
       final expectedLabels = {
         'sadness': '悲伤', 'anxiety': '焦虑', 'anger': '愤怒',
         'loneliness': '孤独', 'suppression': '压抑', 'happiness': '快乐',
+        'calmness': '平静',
       };
       for (final prefix in expectedLabels.keys) {
         final entries = emotionKnowledgeBase.where((e) => e.id.startsWith(prefix)).toList();
@@ -125,7 +126,7 @@ void main() {
     });
 
     test('ID 格式统一为 prefix_NN', () {
-      final regex = RegExp(r'^(sadness|anxiety|anger|loneliness|suppression|happiness)_\d+$');
+      final regex = RegExp(r'^(sadness|anxiety|anger|loneliness|suppression|happiness|calmness)_\d+$');
       for (final entry in emotionKnowledgeBase) {
         expect(regex.hasMatch(entry.id), true, reason: '${entry.id} 格式不正确');
       }
@@ -146,6 +147,7 @@ void main() {
         'loneliness': ['孤独', '寂寞'],
         'suppression': ['压抑', '隐忍'],
         'happiness': ['快乐', '满足'],
+        'calmness': ['平静', '放松'],
       };
       for (final prefix in coreKeywords.keys) {
         final entries = emotionKnowledgeBase.where((e) => e.id.startsWith(prefix)).toList();

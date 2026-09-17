@@ -5,12 +5,12 @@ import 'package:emotion_companion/services/react_agent.dart';
 void main() {
   group('parseAction', () {
     test('解析标准 Action 格式', () {
-      final response = 'Thought: 需要查询天气\nAction: weather_query(city="北京")\n然后回复用户。';
+      final response = 'Thought: 需要查询知识\nAction: knowledge_search(query="压力")\n然后回复用户。';
       final result = ReactAgent.parseAction(response);
       expect(result, isNotNull);
-      expect(result!['toolName'], 'weather_query');
+      expect(result!['toolName'], 'knowledge_search');
       final args = jsonDecode(result['args']!) as Map<String, dynamic>;
-      expect(args['city'], '北京');
+      expect(args['query'], '压力');
     });
 
     test('解析带空格的 Action', () {
@@ -51,16 +51,16 @@ void main() {
     });
 
     test('大小写不敏感', () {
-      final response = 'action: weather_query(city="上海")';
+      final response = 'action: knowledge_search(query="上海")';
       final result = ReactAgent.parseAction(response);
       expect(result, isNotNull);
     });
 
     test('不同 Action 关键字位置', () {
-      final response = '我认为需要天气数据。\nAction: weather_query(city="广州")\n然后回复。';
+      final response = '我认为需要知识数据。\nAction: knowledge_search(query="广州")\n然后回复。';
       final result = ReactAgent.parseAction(response);
       expect(result, isNotNull);
-      expect(result!['toolName'], 'weather_query');
+      expect(result!['toolName'], 'knowledge_search');
     });
   });
 
@@ -84,7 +84,6 @@ void main() {
 
   group('System Prompt', () {
     test('包含所有工具说明', () {
-      expect(ReactAgent.reactSystemPrompt.contains('weather_query'), true);
       expect(ReactAgent.reactSystemPrompt.contains('emotion_analysis'), true);
       expect(ReactAgent.reactSystemPrompt.contains('knowledge_search'), true);
       expect(ReactAgent.reactSystemPrompt.contains('history_query'), true);
@@ -109,10 +108,10 @@ void main() {
     });
 
     test('Thought → Action → Observation 三阶段流程', () {
-      final response = 'Thought: 用户询问天气，需要调用天气工具\nAction: weather_query(city="北京", date="2026年5月2日")\n';
+      final response = 'Thought: 用户询问减压方法，需要调用知识工具\nAction: knowledge_search(query="压力")\n';
       final result = ReactAgent.parseAction(response);
       expect(result, isNotNull);
-      expect(result!['toolName'], 'weather_query');
+      expect(result!['toolName'], 'knowledge_search');
     });
 
     test('无需工具时直接回复', () {

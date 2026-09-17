@@ -70,21 +70,6 @@ class FunctionTools {
         'parameters': {'type': 'object', 'properties': {}, 'required': []}
       }
     },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'weather_query',
-        'description': '查询指定城市和日期的天气状况',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'city': {'type': 'string', 'description': '城市名称'},
-            'date': {'type': 'string', 'description': '日期'}
-          },
-          'required': ['city']
-        }
-      }
-    },
   ];
 
   static Future<String> executeTool(String toolName, Map<String, dynamic> args) async {
@@ -100,8 +85,6 @@ class FunctionTools {
         return _handleBreathingGuide(args);
       case 'goodnight_quote':
         return _handleGoodnightQuote();
-      case 'weather_query':
-        return _handleWeatherQuery(args);
       default:
         return jsonEncode({'error': '未知工具: $toolName'});
     }
@@ -162,15 +145,5 @@ class FunctionTools {
   static Future<String> _handleGoodnightQuote() async {
     final service = AiComfortService();
     return jsonEncode({'quote': service.getGoodnightWord()});
-  }
-
-  static Future<String> _handleWeatherQuery(Map<String, dynamic> args) async {
-    final city = args['city'] as String? ?? '未知';
-    final date = args['date'] as String? ?? '今天';
-    return jsonEncode({
-      'city': city, 'date': date, 'temperature': -15, 'weather': '大雪',
-      'wind': '北风3级', 'humidity': '85%',
-      'suggestion': '天气寒冷，注意保暖，减少外出。大雪天气路滑，出行请注意安全。',
-    });
   }
 }

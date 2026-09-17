@@ -10,11 +10,15 @@ import '../../services/llm_service.dart';
 import '../../services/function_tools.dart';
 import '../../services/ai_comfort_service.dart';
 import '../../services/agents/orchestrator.dart';
+import '../../services/react_agent.dart';
 import '../../services/speech_service.dart';
 import '../../services/storage_service.dart';
 import '../../models/emotion_models.dart';
 import '../../widgets/unified_config_dialog.dart';
 import '../../widgets/speech_params_dialog.dart';
+
+/// 对话引擎类型
+enum ChatEngine { normal, multiAgent, react }
 
 class ComfortPage extends StatefulWidget {
   const ComfortPage({super.key});
@@ -36,8 +40,9 @@ class ComfortPageState extends State<ComfortPage> {
   bool _isLoading = false;
   bool _useLlm = true;
   bool _useStream = true;
-  bool _useMultiAgent = false;
+  ChatEngine _chatEngine = ChatEngine.multiAgent;
   final AgentOrchestrator _orchestrator = AgentOrchestrator();
+  final Set<String> _summarizedConversationIds = {};
   Timer? _typeTimer;
   Timer? _streamDisplayTimer;
   Timer? _cursorBlinkTimer;
@@ -88,6 +93,17 @@ class ComfortPageState extends State<ComfortPage> {
       return _ttsVoiceType ?? '系统默认语音';
     }
     return SpeechConfig.voiceTypeLabels[_ttsVoiceType ?? ''] ?? _ttsVoiceType ?? '选择音色';
+  }
+
+  String get _engineLabel {
+    switch (_chatEngine) {
+      case ChatEngine.multiAgent:
+        return '多Agent协作';
+      case ChatEngine.react:
+        return 'ReAct推理';
+      case ChatEngine.normal:
+        return '大模型';
+    }
   }
 
   List<Map<String, String>> get _availableVoices {
@@ -178,6 +194,49 @@ class ComfortPageState extends State<ComfortPage> {
     await _storageService.setActiveConversationId(_currentConversation!.id);
   }
 
+  /// 对话结束时触发记忆写入（用户画像 + 情节摘要），后台异步执行
+  Future<void> _endCurrentConversation() async {
+    final conv = _currentConversation;
+    if (conv == null) return;
+    // 同一会话在一个 session 内只摘要一次，避免来回切换重复写入
+    if (!_summarizedConversationIds.add(conv.id)) return;
+    final bubbles = _messages
+        .where((b) => b.content.isNotEmpty && !b.isError && !b.content.startsWith('你好呀，我是你的暖心陪伴师'))
+        .toList();
+    if (!bubbles.any((b) => b.isUser)) return;
+    final messages = bubbles
+        .map((b) => {'role': b.isUser ? 'user' : 'assistant', 'content': b.content})
+        .toList();
+    await _orchestrator.onConversationEnd(conversationId: conv.id, messages: messages);
+  }
+
+  List<Map<String, String>> _buildContextHistory() {
+    return _messages
+        .where((b) => b.content.isNotEmpty && !b.content.startsWith('你好呀，我是你的暖心陪伴师'))
+        .map((b) => {'role': b.isUser ? 'user' : 'assistant', 'content': b.content})
+        .toList();
+  }
+
+  Stream<String> _reactStream(String text) async* {
+    yield* ReactAgent.runStream(
+      userMessage: text,
+      baseUrl: _llmService.baseUrl,
+      apiKey: _llmService.apiKey,
+      model: _llmService.model,
+      contextHistory: _buildContextHistory(),
+    );
+  }
+
+  Future<String> _reactRun(String text) async {
+    return await ReactAgent.run(
+      userMessage: text,
+      baseUrl: _llmService.baseUrl,
+      apiKey: _llmService.apiKey,
+      model: _llmService.model,
+      contextHistory: _buildContextHistory(),
+    );
+  }
+
   PopupMenuEntry<String> _buildMenuSectionHeader(String title) {
     return PopupMenuItem<String>(
       enabled: false,
@@ -202,6 +261,7 @@ class ComfortPageState extends State<ComfortPage> {
     required Color color,
     required String title,
     required String subtitle,
+    bool selected = false,
   }) {
     return PopupMenuItem<String>(
       value: value,
@@ -238,6 +298,11 @@ class ComfortPageState extends State<ComfortPage> {
               ],
             ),
           ),
+          if (selected)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Icon(Icons.check_circle, size: 16, color: color),
+            ),
         ],
       ),
     );
@@ -268,6 +333,7 @@ class ComfortPageState extends State<ComfortPage> {
     _ttsPlayer.dispose();
     _speechService.dispose();
     _saveCurrentConversation(); // fire-and-forget
+    unawaited(_endCurrentConversation()); // fire-and-forget 记忆写入
     super.dispose();
   }
 
@@ -327,9 +393,11 @@ class ComfortPageState extends State<ComfortPage> {
         });
 
         try {
-          final stream = _useMultiAgent
-              ? _orchestrator.processStream(text)
-              : _llmService.chatStream(text, tools: FunctionTools.toolDefinitions);
+          final stream = switch (_chatEngine) {
+            ChatEngine.multiAgent => _orchestrator.processStream(text),
+            ChatEngine.react => _reactStream(text),
+            ChatEngine.normal => _llmService.chatStream(text, tools: FunctionTools.toolDefinitions),
+          };
           await for (final delta in stream) {
             if (!mounted) break;
             _streamBuffer += delta;
@@ -341,9 +409,11 @@ class ComfortPageState extends State<ComfortPage> {
             _cursorBlinkTimer?.cancel();
             _messages.removeLast();
             _messages.add(_ChatBubble(content: '', isUser: false, emotion: _currentEmotion, isStreaming: true));
-            final response = _useMultiAgent
-                ? await _orchestrator.process(text)
-                : await _llmService.chat(text, tools: FunctionTools.toolDefinitions);
+            final response = switch (_chatEngine) {
+              ChatEngine.multiAgent => await _orchestrator.process(text),
+              ChatEngine.react => await _reactRun(text),
+              ChatEngine.normal => await _llmService.chat(text, tools: FunctionTools.toolDefinitions),
+            };
             if (mounted) {
               if (response.contains('失败') || response.contains('错误') || response.contains('异常') || response.contains('无法回复')) {
                 _messages.removeLast();
@@ -364,9 +434,11 @@ class ComfortPageState extends State<ComfortPage> {
           if (mounted) {
             _messages.removeLast();
             _messages.add(_ChatBubble(content: '', isUser: false, emotion: _currentEmotion, isStreaming: true));
-            final response = _useMultiAgent
-                ? await _orchestrator.process(text)
-                : await _llmService.chat(text, tools: FunctionTools.toolDefinitions);
+            final response = switch (_chatEngine) {
+              ChatEngine.multiAgent => await _orchestrator.process(text),
+              ChatEngine.react => await _reactRun(text),
+              ChatEngine.normal => await _llmService.chat(text, tools: FunctionTools.toolDefinitions),
+            };
             if (mounted) {
               if (response.contains('失败') || response.contains('错误') || response.contains('异常') || response.contains('无法回复')) {
                 _messages.removeLast();
@@ -383,9 +455,11 @@ class ComfortPageState extends State<ComfortPage> {
         }
       } else {
         // ===== 非流式模式：先请求，再打字机逐字显示 =====
-        final response = _useMultiAgent
-            ? await _orchestrator.process(text)
-            : await _llmService.chat(text, tools: FunctionTools.toolDefinitions);
+        final response = switch (_chatEngine) {
+          ChatEngine.multiAgent => await _orchestrator.process(text),
+          ChatEngine.react => await _reactRun(text),
+          ChatEngine.normal => await _llmService.chat(text, tools: FunctionTools.toolDefinitions),
+        };
         if (mounted) {
           if (response.contains('失败') ||
               response.contains('错误') ||
@@ -702,7 +776,7 @@ class ComfortPageState extends State<ComfortPage> {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           Text(
-            _useLlm ? '大模型${_useStream ? " · 实时流式" : " · 打字机"}' : '本地模式 · 打字机',
+            _useLlm ? '$_engineLabel${_useStream ? " · 实时流式" : " · 打字机"}' : '本地模式 · 打字机',
             style: TextStyle(
               fontSize: 11,
               color: themeColor.withValues(alpha: 0.55),
@@ -748,6 +822,32 @@ class ComfortPageState extends State<ComfortPage> {
                 color: AppColors.calmGreen,
                 title: _useStream ? '实时流式输出' : '打字机模式',
                 subtitle: _useStream ? '点击切换打字机' : '点击切换流式',
+              ),
+              const PopupMenuDivider(height: 1),
+              _buildMenuSectionHeader('对话引擎'),
+              _buildSettingItem(
+                value: 'engine_multi_agent',
+                icon: Icons.hub_outlined,
+                color: AppColors.gentlePurple,
+                title: '多Agent协作模式',
+                subtitle: '情绪分析 + 知识检索 + 回复生成',
+                selected: _chatEngine == ChatEngine.multiAgent,
+              ),
+              _buildSettingItem(
+                value: 'engine_react',
+                icon: Icons.psychology_alt_outlined,
+                color: AppColors.softOrange,
+                title: 'ReAct推理模式',
+                subtitle: '思考-行动-观察循环',
+                selected: _chatEngine == ChatEngine.react,
+              ),
+              _buildSettingItem(
+                value: 'engine_normal',
+                icon: Icons.bolt_outlined,
+                color: AppColors.hazeBlue,
+                title: '普通模式',
+                subtitle: 'Function Calling 工具调用',
+                selected: _chatEngine == ChatEngine.normal,
               ),
               const PopupMenuDivider(height: 1),
               _buildMenuSectionHeader('语音设置'),
@@ -822,6 +922,27 @@ class ComfortPageState extends State<ComfortPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_useStream ? '已开启流式输出（API实时推送）' : '已关闭流式（打字机效果）'),
+          backgroundColor: AppColors.hazeBlue,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } else if (value == 'engine_multi_agent' || value == 'engine_react' || value == 'engine_normal') {
+      setState(() {
+        switch (value) {
+          case 'engine_multi_agent':
+            _chatEngine = ChatEngine.multiAgent;
+            break;
+          case 'engine_react':
+            _chatEngine = ChatEngine.react;
+            break;
+          default:
+            _chatEngine = ChatEngine.normal;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已切换到$_engineLabel'),
           backgroundColor: AppColors.hazeBlue,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1575,6 +1696,7 @@ class ComfortPageState extends State<ComfortPage> {
     // 保存当前对话（如果有内容）
     if (_currentConversation != null) {
       await _saveCurrentConversation();
+      unawaited(_endCurrentConversation());
     }
     _llmService.clearHistory();
     _currentConversation = null;
@@ -1593,6 +1715,7 @@ class ComfortPageState extends State<ComfortPage> {
       return;
     }
     await _saveCurrentConversation();
+    unawaited(_endCurrentConversation());
     _llmService.clearHistory();
     _currentConversation = conv;
     _titleGenerated = conv.title != '新对话';

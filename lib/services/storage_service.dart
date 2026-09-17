@@ -5,6 +5,10 @@ import '../models/emotion_models.dart';
 import '../app/config/speech_config.dart';
 
 class StorageService {
+  StorageService._();
+  static final StorageService _instance = StorageService._();
+  factory StorageService() => _instance;
+
   static const String _settingsBox = 'settings';
   static const String _recordsBox = 'emotion_records';
   static const String _conversationsBox = 'conversations';
