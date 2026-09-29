@@ -1,5 +1,8 @@
 allprojects {
     repositories {
+        // 国内镜像优先：repo.maven.apache.org 对部分构件 301 跳转 github.com，国内直连不通
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
         google()
         mavenCentral()
     }

@@ -5,6 +5,13 @@ import '../app/config/llm_config.dart';
 import 'storage_service.dart';
 import 'function_tools.dart';
 
+class LlmException implements Exception {
+  final String message;
+  LlmException(this.message);
+  @override
+  String toString() => message;
+}
+
 class LlmService {
   static final LlmService _instance = LlmService._();
   factory LlmService() => _instance;
@@ -59,13 +66,24 @@ class LlmService {
 
   /// 发送消息并获取AI回复（非流式）
   Future<String> chat(String userMessage, {List<Map<String, dynamic>>? tools, String? systemPrompt}) async {
-    _history.add({'role': 'user', 'content': userMessage});
+    try {
+      return await chatOrThrow(userMessage, tools: tools, systemPrompt: systemPrompt);
+    } catch (e) {
+      return 'API调用失败（错误: $e）';
+    }
+  }
+
+  /// 与 chat 相同，但失败抛 LlmException；appendUserToHistory=false 时不再把用户消息写入 _history（用于流式降级后重发，避免重复追加）
+  Future<String> chatOrThrow(String message, {List<Map<String, dynamic>>? tools, bool appendUserToHistory = true, String? systemPrompt}) async {
+    if (appendUserToHistory) {
+      _history.add({'role': 'user', 'content': message});
+    }
 
     final effectiveSystemPrompt = systemPrompt ?? _systemPrompt;
 
     final messages = [
       {'role': 'system', 'content': effectiveSystemPrompt},
-      ..._history.length > 20 ? _history.sublist(_history.length - 20) : _history,
+      ..._trimWindow(_history.length > 20 ? _history.sublist(_history.length - 20) : _history),
     ];
 
     developer.log('【LLM请求】URL: $_baseUrl/chat/completions');
@@ -100,11 +118,11 @@ class LlmService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final message = data['choices']?[0]?['message'];
-        final reply = message?['content'] as String? ?? '';
+        final choiceMessage = data['choices']?[0]?['message'];
+        final reply = choiceMessage?['content'] as String? ?? '';
 
         // 检查是否有 tool_calls
-        final toolCalls = message?['tool_calls'] as List<dynamic>?;
+        final toolCalls = choiceMessage?['tool_calls'] as List<dynamic>?;
         if (toolCalls != null && toolCalls.isNotEmpty && tools != null) {
           developer.log('【Function Calling】检测到 ${toolCalls.length} 个工具调用');
 
@@ -137,7 +155,7 @@ class LlmService {
           // 将工具结果反馈给模型，获取最终回复
           final followUpMessages = [
             {'role': 'system', 'content': effectiveSystemPrompt},
-            ..._history.length > 25 ? _history.sublist(_history.length - 25) : _history,
+            ..._trimWindow(_history.length > 25 ? _history.sublist(_history.length - 25) : _history),
           ];
 
           final followUpResponse = await http.post(
@@ -179,25 +197,81 @@ class LlmService {
           return '抱歉，AI返回了空内容。';
         }
       } else {
-        String errorDetail;
-        try {
-          final errorJson = jsonDecode(response.body);
-          errorDetail = errorJson['error']?['message'] ?? errorJson['message'] ?? response.body;
-        } catch (_) {
-          errorDetail = response.body;
-        }
-        return 'API调用失败（状态码: ${response.statusCode}）\n错误信息: $errorDetail';
+        final summary = _summarizeBody(response.body);
+        developer.log('【LLM错误】状态码: ${response.statusCode}, 响应: $summary');
+        throw LlmException('API调用失败（状态码: ${response.statusCode}）: $summary');
       }
     } on FormatException catch (e) {
       developer.log('【LLM错误】格式异常: $e');
-      return '响应解析失败: $e。请确认API为OpenAI兼容格式。';
+      throw LlmException('响应解析失败: $e。请确认API为OpenAI兼容格式。');
+    } on LlmException {
+      rethrow;
     } on Exception catch (e) {
       developer.log('【LLM错误】网络异常: $e');
-      return '网络连接失败: $e。请检查网络或API地址是否正确。';
+      throw LlmException('网络连接失败: $e。请检查网络或API地址是否正确。');
     } catch (e) {
       developer.log('【LLM错误】未知异常: $e');
-      return '发生未知错误: $e';
+      throw LlmException('发生未知错误: $e');
     }
+  }
+
+  /// 修剪发送历史窗口：丢弃窗口开头的孤立 tool 消息，
+  /// 以及后面没有配对 tool 消息的 tool_calls assistant 消息，
+  /// 避免历史被切断后 OpenAI 兼容 API 报 tool_calls 序列错误。
+  List<Map<String, dynamic>> _trimWindow(List<Map<String, dynamic>> window) {
+    final result = <Map<String, dynamic>>[];
+    // 当前待配对的 tool_call id 集合（遇到 assistant(tool_calls) 时开启，遇到普通消息时关闭）
+    Set<String>? openCallIds;
+
+    for (int i = 0; i < window.length; i++) {
+      final msg = window[i];
+      final role = msg['role'];
+
+      if (role == 'assistant' && msg['tool_calls'] is List && (msg['tool_calls'] as List).isNotEmpty) {
+        final ids = <String>{
+          for (final call in msg['tool_calls'] as List) (call['id'] as String? ?? ''),
+        };
+        // 后面必须紧跟它产生的配对 tool 消息，否则整段丢弃
+        if (_hasPairedTool(window, i, ids)) {
+          result.add(msg);
+          openCallIds = ids;
+        } else {
+          openCallIds = null;
+        }
+        continue;
+      }
+
+      if (role == 'tool') {
+        // 开头（或孤立）的 tool 消息：没有配对的 tool_calls assistant 就丢弃
+        final toolCallId = msg['tool_call_id'] as String? ?? '';
+        if (openCallIds != null && openCallIds.contains(toolCallId)) {
+          result.add(msg);
+        }
+        continue;
+      }
+
+      // 普通消息（user/system/普通 assistant）：关闭未完成的工具组
+      openCallIds = null;
+      result.add(msg);
+    }
+
+    return result;
+  }
+
+  /// 从 [assistantIndex] 之后扫描，确认紧跟的 tool 消息中存在 [ids] 里某个 id 的配对结果
+  bool _hasPairedTool(List<Map<String, dynamic>> window, int assistantIndex, Set<String> ids) {
+    for (int i = assistantIndex + 1; i < window.length; i++) {
+      final msg = window[i];
+      if (msg['role'] != 'tool') break; // 工具组结束
+      if (ids.contains(msg['tool_call_id'] as String? ?? '')) return true;
+    }
+    return false;
+  }
+
+  /// 截断响应体用于错误信息（最多 300 字符）
+  String _summarizeBody(String body) {
+    if (body.length <= 300) return body;
+    return '${body.substring(0, 300)}…';
   }
 
   /// 流式输出（SSE）
@@ -208,7 +282,7 @@ class LlmService {
 
     final messages = [
       {'role': 'system', 'content': effectiveSystemPrompt},
-      ..._history.length > 20 ? _history.sublist(_history.length - 20) : _history,
+      ..._trimWindow(_history.length > 20 ? _history.sublist(_history.length - 20) : _history),
     ];
 
     developer.log('【LLM流式】URL: $_baseUrl/chat/completions');
@@ -220,9 +294,9 @@ class LlmService {
       return;
     }
 
+    final client = http.Client();
     try {
       final uri = Uri.parse('$_baseUrl/chat/completions');
-      final client = http.Client();
       final request = http.Request('POST', uri);
       request.headers.addAll({
         'Content-Type': 'application/json',
@@ -240,9 +314,9 @@ class LlmService {
 
       if (response.statusCode != 200) {
         final body = await response.stream.bytesToString();
-        developer.log('【LLM流式错误】状态码: ${response.statusCode}, 内容: $body');
-        yield 'API调用失败（状态码: ${response.statusCode}）\n响应内容: $body';
-        return;
+        final summary = _summarizeBody(body);
+        developer.log('【LLM流式错误】状态码: ${response.statusCode}, 内容: $summary');
+        throw LlmException('API调用失败（状态码: ${response.statusCode}）: $summary');
       }
 
       final buffer = StringBuffer();
@@ -293,9 +367,13 @@ class LlmService {
       if (fullReply.isNotEmpty) {
         _history.add({'role': 'assistant', 'content': fullReply});
       }
+    } on LlmException {
+      rethrow;
     } catch (e) {
       developer.log('【LLM流式错误】异常: $e');
-      yield '发生错误: $e';
+      throw LlmException('发生错误: $e');
+    } finally {
+      client.close();
     }
   }
 
@@ -325,8 +403,9 @@ class LlmService {
       ).timeout(const Duration(seconds: 60));
 
       if (firstResponse.statusCode != 200) {
-        yield 'API调用失败（状态码: ${firstResponse.statusCode}）';
-        return;
+        final summary = _summarizeBody(firstResponse.body);
+        developer.log('【Function Calling 流式】状态码: ${firstResponse.statusCode}, 响应: $summary');
+        throw LlmException('API调用失败（状态码: ${firstResponse.statusCode}）: $summary');
       }
 
       final firstData = jsonDecode(firstResponse.body);
@@ -371,7 +450,7 @@ class LlmService {
         // 第二步：流式输出最终回复
         final followUpMessages = [
           {'role': 'system', 'content': systemPrompt ?? _systemPrompt},
-          ..._history.length > 25 ? _history.sublist(_history.length - 25) : _history,
+          ..._trimWindow(_history.length > 25 ? _history.sublist(_history.length - 25) : _history),
         ];
 
         yield* _streamChat(followUpMessages);
@@ -384,17 +463,19 @@ class LlmService {
         _history.add({'role': 'assistant', 'content': content});
         yield content;
       }
+    } on LlmException {
+      rethrow;
     } catch (e) {
       developer.log('【Function Calling 流式】异常: $e');
-      yield '发生错误: $e';
+      throw LlmException('发生错误: $e');
     }
   }
 
   /// 纯流式输出（用于 Function Calling 后的第二步）
   Stream<String> _streamChat(List<Map<String, dynamic>> messages) async* {
+    final client = http.Client();
     try {
       final uri = Uri.parse('$_baseUrl/chat/completions');
-      final client = http.Client();
       final request = http.Request('POST', uri);
       request.headers.addAll({
         'Content-Type': 'application/json',
@@ -412,8 +493,9 @@ class LlmService {
 
       if (response.statusCode != 200) {
         final body = await response.stream.bytesToString();
-        yield 'API调用失败（状态码: ${response.statusCode}）';
-        return;
+        final summary = _summarizeBody(body);
+        developer.log('【LLM流式错误】状态码: ${response.statusCode}, 内容: $summary');
+        throw LlmException('API调用失败（状态码: ${response.statusCode}）: $summary');
       }
 
       final buffer = StringBuffer();
@@ -446,8 +528,13 @@ class LlmService {
       if (fullReply.isNotEmpty) {
         _history.add({'role': 'assistant', 'content': fullReply});
       }
+    } on LlmException {
+      rethrow;
     } catch (e) {
-      yield '发生错误: $e';
+      developer.log('【LLM流式错误】异常: $e');
+      throw LlmException('发生错误: $e');
+    } finally {
+      client.close();
     }
   }
 

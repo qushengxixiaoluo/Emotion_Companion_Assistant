@@ -9,17 +9,40 @@ class RagService {
   List<EmotionKnowledgeEntry> search(String userMessage) {
     List<MapEntry<EmotionKnowledgeEntry, int>> scoredEntries = [];
 
+    // 查询片段：按空白/中英文标点切分，用于标签双向命中
+    final fragments = userMessage
+        .replaceAll(RegExp(r'[，。！？、；：""''（）[\]【】,!?;:：，]'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((f) => f.isNotEmpty)
+        .toList();
+    // 查询 2-gram（按片段切，避免跨片段噪声词），用于与 scenario 文本做重叠计分
+    final queryGrams = <String>{};
+    for (final f in fragments) {
+      for (var i = 0; i < f.length - 1; i++) {
+        queryGrams.add(f.substring(i, i + 2));
+      }
+    }
+
     for (final entry in emotionKnowledgeBase) {
       int score = 0;
+      // contextTag 命中 +3（权重最高）
       for (final tag in entry.contextTags) {
-        if (userMessage.contains(tag)) score += 3;
+        if (_tagHit(fragments, tag)) score += 3;
       }
+      // emotionTag 命中 +2
       for (final tag in entry.emotionTags) {
-        if (userMessage.contains(tag)) score += 2;
+        if (_tagHit(fragments, tag)) score += 2;
       }
-      final userChars = userMessage.split('');
-      for (final ch in userChars) {
-        if (ch.length == 1 && entry.scenario.contains(ch)) score += 1;
+      // scenario 与查询的 2-gram 重叠数 ×1，封顶 +4，防止长场景刷分
+      // （替代原先的逐字符 +1——常用字必然命中，接近随机）
+      if (queryGrams.isNotEmpty) {
+        final scenarioGrams = <String>{};
+        final scenario = entry.scenario.replaceAll(RegExp(r'\s+'), '');
+        for (var i = 0; i < scenario.length - 1; i++) {
+          scenarioGrams.add(scenario.substring(i, i + 2));
+        }
+        final overlap = scenarioGrams.intersection(queryGrams).length;
+        score += overlap > 4 ? 4 : overlap;
       }
       scoredEntries.add(MapEntry(entry, score));
     }
@@ -29,6 +52,7 @@ class RagService {
         : scoredEntries.map((e) => e.value).reduce((a, b) => a > b ? a : b);
 
     if (maxScore == 0) {
+      // 空查询 / 无任何命中的兜底：返回"平静"类条目
       return emotionKnowledgeBase
           .where((e) => e.emotionTags.contains('平静'))
           .take(5)
@@ -37,6 +61,14 @@ class RagService {
 
     scoredEntries.sort((a, b) => b.value.compareTo(a.value));
     return scoredEntries.take(5).map((e) => e.key).toList();
+  }
+
+  /// 双向标签命中：查询片段含 tag，或 tag 含查询片段
+  bool _tagHit(List<String> fragments, String tag) {
+    for (final f in fragments) {
+      if (f.contains(tag) || tag.contains(f)) return true;
+    }
+    return false;
   }
 
   String buildKnowledgeContext(List<EmotionKnowledgeEntry> entries) {

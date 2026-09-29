@@ -24,7 +24,8 @@ Observation: 工具返回的结果（由系统自动填入）
 - breathing_guide(step): 获取呼吸引导语
 - goodnight_quote(): 获取晚安语录''';
 
-  static Future<String> run({
+  /// 返回 null 表示 LLM 不可用（调用方据此继续降级到本地话术）
+  static Future<String?> run({
     required String userMessage,
     required String baseUrl,
     required String apiKey,
@@ -42,44 +43,34 @@ Observation: 工具返回的结果（由系统自动填入）
 
     for (int i = 0; i < maxIterations; i++) {
       final response = await _callLlm(baseUrl: baseUrl, apiKey: apiKey, model: model, messages: messages);
-      if (response == null) return '抱歉，AI暂时无法回复，请稍后再试。';
+      if (response == null) return null;
 
       final actionMatch = parseAction(response);
       if (actionMatch == null) return response.trim();
 
       final toolName = actionMatch['toolName']!;
       final toolArgs = parseArgs(actionMatch['args']!);
-      final toolResult = await FunctionTools.executeTool(toolName, toolArgs);
+      // 工具参数类型不符等异常不让整轮对话崩溃，降级为错误观察继续循环
+      String toolResult;
+      try {
+        toolResult = await FunctionTools.executeTool(toolName, toolArgs);
+      } catch (e) {
+        toolResult = '工具执行出错: $e';
+      }
 
       messages.add({'role': 'assistant', 'content': response});
       messages.add({'role': 'user', 'content': 'Observation: $toolResult\n\n请根据以上工具返回的结果继续思考和回复。'});
     }
 
     final lastResponse = await _callLlm(baseUrl: baseUrl, apiKey: apiKey, model: model, messages: messages);
-    return lastResponse?.trim() ?? '抱歉，处理过程中遇到困难，请再试一次。';
-  }
-
-  /// 流式入口：执行 ReAct 循环后按小块输出最终回复（配合 UI 打字机效果）
-  static Stream<String> runStream({
-    required String userMessage,
-    required String baseUrl,
-    required String apiKey,
-    required String model,
-    List<Map<String, String>>? contextHistory,
-  }) async* {
-    final result = await run(
-      userMessage: userMessage,
-      baseUrl: baseUrl,
-      apiKey: apiKey,
-      model: model,
-      contextHistory: contextHistory,
-    );
-
-    // 按字词块输出，模拟流式节奏
-    final chunks = result.split(RegExp(r'(?<=\n)|(?<=[。！？，…])'));
-    for (final chunk in chunks) {
-      if (chunk.isNotEmpty) yield chunk;
+    if (lastResponse == null) return null;
+    final finalText = lastResponse.trim();
+    // 循环耗尽后模型仍可能输出 Thought/Action 推理原文：剥离，不把内部推理展示给用户
+    if (parseAction(finalText) != null) {
+      final cleaned = _stripToFinalAnswer(finalText);
+      return cleaned.isNotEmpty ? cleaned : '抱歉，我还没想好怎么回答，换个说法试试？';
     }
+    return finalText;
   }
 
   static Map<String, String>? parseAction(String response) {
@@ -137,5 +128,16 @@ Observation: 工具返回的结果（由系统自动填入）
 
   static Map<String, dynamic> parseArgs(String argsJson) {
     try { return jsonDecode(argsJson) as Map<String, dynamic>; } catch (_) { return {}; }
+  }
+
+  /// 剥离到最后一行 Action 之后的内容（丢弃 Thought/Action 推理原文）
+  static String _stripToFinalAnswer(String text) {
+    final lines = text.split('\n');
+    int lastAction = -1;
+    for (int i = 0; i < lines.length; i++) {
+      if (RegExp(r'^\s*Action\s*:', caseSensitive: false).hasMatch(lines[i])) lastAction = i;
+    }
+    if (lastAction < 0) return text.trim();
+    return lines.sublist(lastAction + 1).join('\n').trim();
   }
 }

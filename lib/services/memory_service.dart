@@ -78,8 +78,10 @@ class MemoryService {
       } catch (_) { return; }
 
       if (summary.isEmpty) return;
+      // 幂等：直接用 conv.id 作为摘要 id，saveSummary 按 id put 即覆盖（upsert），
+      // 同一会话重复摘要只保留最新一条，调用方无需再去重。
       await _storage.saveSummary(ConversationSummary(
-        id: _generateId(conv.id), conversationId: conv.id, summary: summary,
+        id: conv.id, conversationId: conv.id, summary: summary,
         emotionTags: emotionTags, createdAt: DateTime.now(),
       ));
     } catch (e) { developer.log('【记忆服务】生成摘要异常: $e'); }
@@ -131,10 +133,30 @@ class MemoryService {
   }
 
   List<String> _extractKeywords(String message) {
-    final raw = message.replaceAll(RegExp(r'[，。！？、；：""''（）[\]【】]'), ' ').split(RegExp(r'\s+')).where((w) => w.length >= 2).toList();
+    // 中文无空格：按标点/空白切出的长片段必须再切成 2 字滑窗（2-gram），
+    // 否则会得到"我今天很难过工作压力大"这类超长关键词，contains 检索永不命中。
+    final fragments = message
+        .replaceAll(RegExp(r'[，。！？、；：""''（）[\]【】]'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length >= 2)
+        .toList();
     final seen = <String>{};
     final keywords = <String>[];
-    for (final w in raw) { if (seen.add(w)) keywords.add(w); }
-    return keywords.take(5).toList();
+    void add(String kw) {
+      if (seen.add(kw)) keywords.add(kw);
+    }
+
+    for (final fragment in fragments) {
+      if (fragment.length <= 4) {
+        add(fragment); // 短片段原样保留
+      } else {
+        // 长片段切成所有相邻 2 字滑窗：如 很难过 → 很难、难过
+        for (var i = 0; i < fragment.length - 1; i++) {
+          add(fragment.substring(i, i + 2));
+        }
+      }
+    }
+    // 2-gram 噪声较多，从原来的 take(5) 放宽到 take(8)
+    return keywords.take(8).toList();
   }
 }

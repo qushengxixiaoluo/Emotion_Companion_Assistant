@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../app/themes/app_colors.dart';
 import '../../app/responsive/adaptive_content_wrapper.dart';
-import '../../services/emotion_service.dart';
 import '../../services/storage_service.dart';
 import '../../models/emotion_models.dart';
 import '../../app/routes/app_routes.dart';
@@ -11,6 +10,7 @@ import '../../widgets/emotion_radar.dart';
 import '../../widgets/heartbeat_breath_button.dart';
 import '../../widgets/fortune_draw.dart';
 import '../../widgets/fortune_calendar.dart';
+import '../../widgets/emotion_archive_dialog.dart';
 
 class HomePage extends StatefulWidget {
   final VoidCallback? onNavigateToComfort;
@@ -21,7 +21,6 @@ class HomePage extends StatefulWidget {
 }
 
 class HomePageState extends State<HomePage> {
-  final EmotionService _emotionService = EmotionService();
   final StorageService _storageService = StorageService();
   List<EmotionRecord> _records = [];
   String _greeting = '';
@@ -439,7 +438,8 @@ class HomePageState extends State<HomePage> {
           ),
           const SizedBox(height: 16),
           HeartbeatBreathButton(
-            onTap: () => Get.toNamed(AppRoutes.treehole),
+            // 推送入口返回后刷新首页，避免树洞删除/新增后首页显示旧数据
+            onTap: () => Get.toNamed(AppRoutes.treehole)?.then((_) => _loadData()),
           ),
           const SizedBox(height: 16),
           Text(
@@ -695,7 +695,29 @@ class HomePageState extends State<HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSectionHeader('近期情绪波动', AppColors.hazeBlue),
+          _buildSectionHeader(
+            '近期情绪波动',
+            AppColors.hazeBlue,
+            trailing: GestureDetector(
+              onTap: () => showEmotionArchiveDialog(context),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.calendar_month_outlined,
+                      size: 14, color: AppColors.hazeBlue.withValues(alpha: 0.8)),
+                  const SizedBox(width: 4),
+                  Text(
+                    '归档',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.hazeBlue.withValues(alpha: 0.9),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 8),
           if (_records.isEmpty)
             _buildEmptyState(
@@ -841,7 +863,13 @@ class HomePageState extends State<HomePage> {
   }
 
   Widget _buildEmotionTimeline() {
-    final recent = _records.take(7).toList().reversed.toList();
+    // 过滤掉"分析中..."占位记录，与 analysis 页保持一致
+    final recent = _records
+        .where((r) => r.dominantEmotion != '分析中...')
+        .take(7)
+        .toList()
+        .reversed
+        .toList();
     if (recent.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(

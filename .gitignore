@@ -123,3 +123,5 @@ GoogleService-Info.plist
 .env.*
 **/secrets.dart
 **/secrets.yaml
+# Android 构建产物
+/android/build/

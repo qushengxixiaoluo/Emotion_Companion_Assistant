@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../../app/themes/app_colors.dart';
 import '../../app/responsive/adaptive_content_wrapper.dart';
 import '../../services/emotion_service.dart';
 import '../../services/llm_service.dart';
 import '../../services/storage_service.dart';
+import '../../services/white_noise_service.dart';
 import '../../models/emotion_models.dart';
 import '../../app/routes/app_routes.dart';
 import '../../widgets/unified_config_dialog.dart';
@@ -26,30 +26,83 @@ class TreeholePageState extends State<TreeholePage> {
   bool _isLocked = false;
   bool _showPinDialog = false;
 
-  // 白噪音
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  String? _currentNoise; // 'rain', 'wind', 'stream' 或 null
-  Timer? _fadeTimer;
-  double _currentVolume = 1.0;
+  // PIN 解锁失败限制：连续 5 次错误后禁用输入 30 秒（页面内状态，无需持久化）
+  static const int _pinMaxFails = 5;
+  static const int _pinLockSeconds = 30;
+  int _pinFailCount = 0;
+  DateTime? _pinLockUntil;
+  Timer? _pinLockTimer;
+  final TextEditingController _pinInputController = TextEditingController();
+
+  bool get _isPinLockedOut =>
+      _pinLockUntil != null && DateTime.now().isBefore(_pinLockUntil!);
+
+  int get _pinLockRemaining {
+    if (_pinLockUntil == null) return 0;
+    final s = _pinLockUntil!.difference(DateTime.now()).inSeconds;
+    return s < 1 ? 1 : s;
+  }
+
+  void _beginPinLockout() {
+    _pinLockUntil = DateTime.now().add(const Duration(seconds: _pinLockSeconds));
+    _pinLockTimer?.cancel();
+    _pinLockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        _pinLockTimer = null;
+        return;
+      }
+      if (_isPinLockedOut) {
+        setState(() {}); // 刷新倒计时
+      } else {
+        timer.cancel();
+        _pinLockTimer = null;
+        setState(() {
+          _pinLockUntil = null;
+          _pinFailCount = 0;
+        });
+      }
+    });
+  }
+
+  void _resetPinFailures() {
+    _pinFailCount = 0;
+    _pinLockUntil = null;
+    _pinLockTimer?.cancel();
+    _pinLockTimer = null;
+  }
+
+  // 白噪音：由全局 WhiteNoiseService 单例播放（两个入口共享，退出页面不中断）
+  final WhiteNoiseService _noiseService = WhiteNoiseService();
 
   @override
   void initState() {
     super.initState();
     _checkLock();
     _loadRecords();
-    _audioPlayer.setReleaseMode(ReleaseMode.loop);
+    // 监听全局噪音状态：任一入口切换，所有存活实例同步刷新高亮
+    _noiseService.currentNoise.addListener(_onNoiseChanged);
+  }
+
+  void _onNoiseChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _fadeTimer?.cancel();
-    _audioPlayer.dispose();
+    _noiseService.currentNoise.removeListener(_onNoiseChanged);
+    _pinLockTimer?.cancel();
+    _pinInputController.dispose();
+    // 注意：不释放白噪音播放器——它属于应用级单例，退出页面声音继续
     super.dispose();
   }
 
   Future<void> _checkLock() async {
     final locked = await _storageService.isLocked();
-    setState(() => _isLocked = locked);
+    final hasPin = await _storageService.hasPin();
+    // 兜底：已锁定却没有 PIN 时不进锁屏，
+    // 否则 verifyPin 恒为 false 会造成永久死锁（锁屏、无 PIN、任何密码都进不去）。
+    setState(() => _isLocked = locked && hasPin);
   }
 
   Future<void> _loadRecords() async {
@@ -74,143 +127,194 @@ class TreeholePageState extends State<TreeholePage> {
     final recordId = DateTime.now().microsecondsSinceEpoch.toString();
     final now = DateTime.now();
 
-    if (useLlm) {
-      // LLM 模式：先创建占位记录，显示加载弹窗，后台分析
-      final pendingRecord = EmotionRecord(
-        id: recordId,
-        content: text,
-        dominantEmotion: '分析中...',
-        createdAt: now,
-      );
-      await _storageService.saveRecord(pendingRecord);
-      _textController.clear();
-      await _loadRecords();
+    // 占位记录是否仍在库里（失败时必须在 catch 里替换成兜底记录）
+    bool placeholderSaved = false;
+    // 加载弹窗是否仍打开 —— 这是唯一的"加载态"，finally 必须关闭它
+    bool dialogOpen = false;
+    bool dialogCancelled = false;
 
-      // 显示加载弹窗
-      bool dialogCancelled = false;
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('AI情绪分析', style: TextStyle(fontSize: 16)),
-                GestureDetector(
-                  onTap: () {
-                    dialogCancelled = true;
-                    Navigator.of(ctx).pop();
-                  },
-                  child: Icon(Icons.close, size: 20, color: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.3)),
+    try {
+      if (useLlm) {
+        // LLM 模式：先创建占位记录，显示加载弹窗，后台分析
+        final pendingRecord = EmotionRecord(
+          id: recordId,
+          content: text,
+          dominantEmotion: '分析中...',
+          createdAt: now,
+        );
+        await _storageService.saveRecord(pendingRecord);
+        placeholderSaved = true;
+        _textController.clear();
+        await _loadRecords();
+
+        // 显示加载弹窗
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) {
+              return AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                title: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('AI情绪分析', style: TextStyle(fontSize: 16)),
+                    GestureDetector(
+                      onTap: () {
+                        dialogCancelled = true;
+                        dialogOpen = false;
+                        Navigator.of(ctx).pop();
+                      },
+                      child: Icon(Icons.close, size: 20, color: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.3)),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            titlePadding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
-            content: const SizedBox(
-              height: 100,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 20),
-                  Text('正在生成详细情绪报告中……', style: TextStyle(fontSize: 15)),
-                ],
+                titlePadding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
+                content: const SizedBox(
+                  height: 100,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 20),
+                      Text('正在生成详细情绪报告中……', style: TextStyle(fontSize: 15)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+          // showDialog 返回后立即标记（builder 可能尚未执行，不能依赖 builder 内赋值）
+          dialogOpen = true;
+        }
+
+        final llmResult = await llmService.analyzeEmotion(text);
+
+        // 构建最终记录：AI成功用AI结果，失败用本地兜底
+        final EmotionRecord finalRecord;
+        if (llmResult != null) {
+          double numAt(String key) => (llmResult[key] as num?)?.toDouble() ?? 0;
+          finalRecord = EmotionRecord(
+            id: recordId,
+            content: text,
+            sadness: numAt('sadness'),
+            anxiety: numAt('anxiety'),
+            anger: numAt('anger'),
+            loneliness: numAt('loneliness'),
+            happiness: numAt('happiness'),
+            calmness: numAt('calmness'),
+            suppression: numAt('suppression'),
+            dominantEmotion: llmResult['dominantEmotion']?.toString() ?? '平静',
+            createdAt: pendingRecord.createdAt,
+            interpretation: llmResult['interpretation']?.toString() ?? '',
+            suggestions: (llmResult['suggestions'] as List?)
+                    ?.map((e) => e.toString())
+                    .toList() ??
+                const [],
+          );
+        } else {
+          finalRecord = _localFallbackRecord(recordId, text, pendingRecord.createdAt);
+        }
+
+        // 用最终结果替换占位记录，刷新列表
+        await _storageService.saveRecord(finalRecord);
+        placeholderSaved = false;
+        await _loadRecords();
+
+        if (dialogCancelled) {
+          // 用户已关弹窗 → 结果已静默更新到列表
+        } else {
+          if (dialogOpen && mounted) {
+            dialogOpen = false;
+            Navigator.of(context).pop();
+          }
+          if (mounted) {
+            Get.toNamed(AppRoutes.analysis, arguments: {'recordId': finalRecord.id});
+          }
+        }
+      } else {
+        // 本地模式：直接分析，无需弹窗
+        final finalRecord = _localFallbackRecord(recordId, text, now);
+        await _storageService.saveRecord(finalRecord);
+        _textController.clear();
+        await _loadRecords();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('已使用本地分析，配置大模型 API 可获得 AI 深度分析'),
+              backgroundColor: AppColors.hazeBlue,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              duration: const Duration(seconds: 3),
+              action: SnackBarAction(
+                label: '去配置',
+                textColor: Colors.white,
+                onPressed: () {
+                  showUnifiedConfigDialog(context).then((_) => _loadRecords());
+                },
               ),
             ),
-          ),
-        );
-      }
-
-      final llmResult = await llmService.analyzeEmotion(text);
-
-      // 构建最终记录：AI成功用AI结果，失败用本地兜底
-      final EmotionRecord finalRecord;
-      if (llmResult != null) {
-        finalRecord = EmotionRecord(
-          id: recordId,
-          content: text,
-          sadness: (llmResult['sadness'] ?? 0.0).toDouble(),
-          anxiety: (llmResult['anxiety'] ?? 0.0).toDouble(),
-          anger: (llmResult['anger'] ?? 0.0).toDouble(),
-          loneliness: (llmResult['loneliness'] ?? 0.0).toDouble(),
-          happiness: (llmResult['happiness'] ?? 0.0).toDouble(),
-          calmness: (llmResult['calmness'] ?? 0.0).toDouble(),
-          suppression: (llmResult['suppression'] ?? 0.0).toDouble(),
-          dominantEmotion: llmResult['dominantEmotion'] ?? '平静',
-          createdAt: pendingRecord.createdAt,
-          interpretation: llmResult['interpretation'] ?? '',
-          suggestions: (llmResult['suggestions'] as List<dynamic>?)?.cast<String>() ?? [],
-        );
-      } else {
-        final localRecord = _emotionService.analyze(text);
-        finalRecord = EmotionRecord(
-          id: recordId,
-          content: text,
-          sadness: localRecord.sadness,
-          anxiety: localRecord.anxiety,
-          anger: localRecord.anger,
-          loneliness: localRecord.loneliness,
-          happiness: localRecord.happiness,
-          calmness: localRecord.calmness,
-          suppression: localRecord.suppression,
-          dominantEmotion: localRecord.dominantEmotion,
-          createdAt: pendingRecord.createdAt,
-        );
-      }
-
-      // 用最终结果替换占位记录，刷新列表
-      await _storageService.saveRecord(finalRecord);
-      await _loadRecords();
-
-      if (dialogCancelled) {
-        // 用户已关弹窗 → 结果已静默更新到列表
-      } else {
-        if (mounted) Navigator.of(context).pop();
-        if (mounted) {
-          Get.toNamed(AppRoutes.analysis, arguments: {'recordId': finalRecord.id});
+          );
         }
       }
-    } else {
-      // 本地模式：直接分析，无需弹窗
-      final localRecord = _emotionService.analyze(text);
-      final finalRecord = EmotionRecord(
-        id: recordId,
-        content: text,
-        sadness: localRecord.sadness,
-        anxiety: localRecord.anxiety,
-        anger: localRecord.anger,
-        loneliness: localRecord.loneliness,
-        happiness: localRecord.happiness,
-        calmness: localRecord.calmness,
-        suppression: localRecord.suppression,
-        dominantEmotion: localRecord.dominantEmotion,
-        createdAt: now,
-      );
-      await _storageService.saveRecord(finalRecord);
-      _textController.clear();
-      await _loadRecords();
-
+    } catch (_) {
+      // 分析中途失败：绝不让"分析中..."占位记录永留库里
+      bool fallbackSaved = false;
+      if (placeholderSaved) {
+        try {
+          final fallback = _localFallbackRecord(recordId, text, now);
+          await _storageService.saveRecord(fallback);
+          placeholderSaved = false;
+          fallbackSaved = true;
+        } catch (_) {
+          // 兜底也失败 → 删除占位记录，至少不留假数据
+          try {
+            await _storageService.deleteRecord(recordId);
+            placeholderSaved = false;
+          } catch (_) {}
+        }
+      }
       if (mounted) {
+        await _loadRecords();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('已使用本地分析，配置大模型 API 可获得 AI 深度分析'),
-            backgroundColor: AppColors.hazeBlue,
-            behavior: SnackBarBehavior.floating,
+            content: Text(fallbackSaved ? 'AI 分析失败，已改用本地分析' : 'AI 分析失败，请稍后重试'),
+            backgroundColor: AppColors.softPink,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             duration: const Duration(seconds: 3),
-            action: SnackBarAction(
-              label: '去配置',
-              textColor: Colors.white,
-              onPressed: () {
-                showUnifiedConfigDialog(context).then((_) => _loadRecords());
-              },
-            ),
           ),
         );
       }
+    } finally {
+      // 结束加载态：确保加载弹窗一定被关闭
+      if (dialogOpen) {
+        dialogOpen = false;
+        if (mounted) {
+          try {
+            Navigator.of(context).pop();
+          } catch (_) {}
+        }
+      }
     }
+  }
+
+  /// 本地分析兜底记录
+  EmotionRecord _localFallbackRecord(String id, String text, DateTime createdAt) {
+    final localRecord = _emotionService.analyze(text);
+    return EmotionRecord(
+      id: id,
+      content: text,
+      sadness: localRecord.sadness,
+      anxiety: localRecord.anxiety,
+      anger: localRecord.anger,
+      loneliness: localRecord.loneliness,
+      happiness: localRecord.happiness,
+      calmness: localRecord.calmness,
+      suppression: localRecord.suppression,
+      dominantEmotion: localRecord.dominantEmotion,
+      createdAt: createdAt,
+    );
   }
 
   // ============ BUILD ============
@@ -524,7 +628,7 @@ class TreeholePageState extends State<TreeholePage> {
   // ============ COMPONENT BUILDERS ============
 
   Widget _buildNoiseChip(String label, IconData icon, String key) {
-    final isActive = _currentNoise == key;
+    final isActive = _noiseService.currentNoise.value == key;
     return GestureDetector(
       onTap: () => _toggleNoise(key),
       child: Container(
@@ -743,22 +847,35 @@ class TreeholePageState extends State<TreeholePage> {
   }
 
   Widget _buildLockedView() {
-    final controller = TextEditingController();
-
     void tryUnlock() async {
-      final verified = await _storageService.verifyPin(controller.text);
-      if (verified && mounted) {
-        setState(() => _isLocked = false);
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('密码错误'),
-            backgroundColor: AppColors.softPink,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+      if (_isPinLockedOut) return;
+      final verified = await _storageService.verifyPin(_pinInputController.text);
+      if (!mounted) return;
+      if (verified) {
+        _resetPinFailures();
+        setState(() {
+          _isLocked = false;
+          _pinInputController.clear();
+        });
+        return;
       }
+      _pinFailCount += 1;
+      if (_pinFailCount >= _pinMaxFails) {
+        _beginPinLockout();
+      }
+      setState(() {}); // 刷新剩余次数/倒计时
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isPinLockedOut
+                ? '连续$_pinMaxFails次错误，已禁用输入$_pinLockSeconds秒（${_pinLockRemaining}秒后恢复）'
+                : '密码错误，还可尝试${_pinMaxFails - _pinFailCount}次',
+          ),
+          backgroundColor: AppColors.softPink,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -809,12 +926,13 @@ class TreeholePageState extends State<TreeholePage> {
                 SizedBox(
                   width: 220,
                   child: TextField(
-                    controller: controller,
+                    controller: _pinInputController,
                     obscureText: true,
                     textAlign: TextAlign.center,
                     keyboardType: TextInputType.number,
+                    enabled: !_isPinLockedOut,
                     decoration: InputDecoration(
-                      hintText: '请输入密码',
+                      hintText: _isPinLockedOut ? '$_pinLockRemaining秒后可重试' : '请输入密码',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide(color: AppColors.hazeBlue.withOpacity(0.2)),
@@ -829,10 +947,12 @@ class TreeholePageState extends State<TreeholePage> {
                       ),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.lock_open_outlined, color: AppColors.hazeBlue),
-                        onPressed: tryUnlock,
+                        onPressed: _isPinLockedOut ? null : tryUnlock,
                       ),
                     ),
-                    onSubmitted: (_) => tryUnlock(),
+                    onSubmitted: (_) {
+                      if (!_isPinLockedOut) tryUnlock();
+                    },
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -858,53 +978,9 @@ class TreeholePageState extends State<TreeholePage> {
 
   // ============ AUDIO ============
 
-  double _easeInOut(double t) => t * t * (3 - 2 * t);
-
-  void _fadeTo(AudioPlayer player, double target, Duration duration,
-      {VoidCallback? onDone}) {
-    _fadeTimer?.cancel();
-    final steps = (duration.inMilliseconds / 50).round();
-    final startVolume = _currentVolume;
-    final delta = target - startVolume;
-    int step = 0;
-    _fadeTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      step++;
-      if (step >= steps) {
-        _currentVolume = target;
-        player.setVolume(target);
-        timer.cancel();
-        _fadeTimer = null;
-        onDone?.call();
-      } else {
-        final progress = _easeInOut(step / steps);
-        _currentVolume = startVolume + delta * progress;
-        player.setVolume(_currentVolume);
-      }
-    });
-  }
-
-  void _toggleNoise(String key) async {
-    _fadeTimer?.cancel();
-
-    if (_currentNoise == key) {
-      setState(() => _currentNoise = null);
-      _fadeTo(_audioPlayer, 0.0, const Duration(seconds: 3), onDone: () {
-        _audioPlayer.stop();
-        _currentVolume = 1.0;
-      });
-    } else {
-      await _audioPlayer.stop();
-      final assetMap = {
-        'rain': 'audio/rain.mp3',
-        'wind': 'audio/night_wind.mp3',
-        'stream': 'audio/stream.mp3',
-      };
-      _currentVolume = 0.0;
-      _audioPlayer.setVolume(0.0);
-      await _audioPlayer.play(AssetSource(assetMap[key]!));
-      setState(() => _currentNoise = key);
-      _fadeTo(_audioPlayer, 1.0, const Duration(seconds: 3));
-    }
+  /// 白噪音切换：委托全局单例（状态变化经 ValueNotifier 回调 _onNoiseChanged 刷新 UI）
+  void _toggleNoise(String key) {
+    _noiseService.toggle(key);
   }
 
   // ============ HELPERS ============
@@ -968,7 +1044,8 @@ class TreeholePageState extends State<TreeholePage> {
       ),
     );
     if (confirmed == true && mounted) {
-      await _storageService.clearAllRecords();
+      // 本入口只负责"情绪日记"，用仅清日记的方法，避免误删对话/梦境等数据
+      await _storageService.clearEmotionRecords();
       await _loadRecords();
     }
   }
@@ -1043,8 +1120,8 @@ class TreeholePageState extends State<TreeholePage> {
             TextButton(
               onPressed: () async {
                 final pin = controller.text;
-                if (pin.length < 4) {
-                  setDialogState(() => errorText = '密码至少4位');
+                if (!RegExp(r'^\d{4,6}$').hasMatch(pin)) {
+                  setDialogState(() => errorText = '请输入4-6位数字密码');
                   return;
                 }
                 // 弹出确认密码弹窗
@@ -1263,13 +1340,15 @@ class TreeholePageState extends State<TreeholePage> {
     );
 
     if (verified == true && mounted) {
-      // 密保验证通过 → 重置密码
-      await _storageService.clearPin();
+      // 密保验证通过 → 重置密码。
+      // 注意：此处不清空旧 PIN。_showCreatePinDialog 成功时才调用 setPin 覆盖；
+      // 用户若中途取消，旧 PIN 原样保留，锁依然生效（不会出现"锁还在但无 PIN"的万能解锁态）。
       final set = await _showCreatePinDialog(title: '重置密码', hint: '请设置新的4-6位数字密码');
       if (set == true && mounted) {
         // 重新设置密保
         _showRecoveryQASetupDialog();
         // 解锁
+        _resetPinFailures();
         setState(() => _isLocked = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

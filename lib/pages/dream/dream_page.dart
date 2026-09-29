@@ -67,17 +67,27 @@ class _DreamPageState extends State<DreamPage> {
       final pendingText = await _storageService.getPendingDreamText();
       if (pendingText == null && mounted) {
         _pendingCheckTimer?.cancel();
+        final targetId = _pendingDreamId;
         _pendingDreamId = null;
         await _loadHistory();
-        // 检查是否刚完成的记录在历史中
-        final records = _history;
-        if (records.isNotEmpty) {
-          final latest = records.first;
+        // 按提交时记录的 id 精确匹配本次结果；后台解析失败时
+        // pending 已清但记录不存在，绝不能拿历史旧梦顶替
+        DreamRecord? matched;
+        if (targetId != null) {
+          for (final r in _history) {
+            if (r.id == targetId) {
+              matched = r;
+              break;
+            }
+          }
+        }
+        if (matched != null) {
+          final record = matched;
           setState(() {
             _isLoading = false;
-            _resultMarkdown = latest.analysis;
-            _resultTitle = latest.title;
-            _dreamText = latest.dreamText;
+            _resultMarkdown = record.analysis;
+            _resultTitle = record.title;
+            _dreamText = record.dreamText;
           });
           _scrollToResult();
         } else {

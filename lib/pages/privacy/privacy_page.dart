@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../app/themes/app_colors.dart';
@@ -18,6 +19,63 @@ class PrivacyPageState extends State<PrivacyPage> {
   final AppController _appController = Get.find<AppController>();
   bool _isLocked = false;
   bool _darkMode = false;
+
+  // PIN 校验失败限制：连续 5 次错误后禁用输入 30 秒（页面内状态，无需持久化）
+  static const int _pinMaxFails = 5;
+  static const int _pinLockSeconds = 30;
+  int _pinFailCount = 0;
+  DateTime? _pinLockUntil;
+  Timer? _pinLockTimer;
+  // 当前打开的 PIN 校验弹窗的刷新器，用于实时刷新倒计时
+  void Function(VoidCallback)? _pinDialogUpdater;
+
+  bool get _isPinLockedOut =>
+      _pinLockUntil != null && DateTime.now().isBefore(_pinLockUntil!);
+
+  int get _pinLockRemaining {
+    if (_pinLockUntil == null) return 0;
+    final s = _pinLockUntil!.difference(DateTime.now()).inSeconds;
+    return s < 1 ? 1 : s;
+  }
+
+  void _beginPinLockout() {
+    _pinLockUntil = DateTime.now().add(const Duration(seconds: _pinLockSeconds));
+    _pinLockTimer?.cancel();
+    _pinLockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        _pinLockTimer = null;
+        return;
+      }
+      if (!_isPinLockedOut) {
+        timer.cancel();
+        _pinLockTimer = null;
+        _pinLockUntil = null;
+        _pinFailCount = 0;
+      }
+      // 刷新弹窗倒计时（弹窗关闭后 updater 已置空）
+      try {
+        _pinDialogUpdater?.call(() {});
+      } catch (_) {}
+      setState(() {});
+    });
+  }
+
+  void _resetPinFailures() {
+    _pinFailCount = 0;
+    _pinLockUntil = null;
+    _pinLockTimer?.cancel();
+    _pinLockTimer = null;
+  }
+
+  String get _pinLockErrorText =>
+      '连续$_pinMaxFails次错误，请${_pinLockRemaining}秒后再试';
+
+  @override
+  void dispose() {
+    _pinLockTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -292,7 +350,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                 _buildActionTile(
                   icon: Icons.delete_outline,
                   title: '一键清空所有记录',
-                  subtitle: '删除所有情绪日记，不可恢复',
+                  subtitle: '清空情绪日记、对话、梦境等全部数据，不可恢复',
                   color: AppColors.angerRed,
                   onTap: _confirmClearAll,
                 ),
@@ -594,65 +652,86 @@ class PrivacyPageState extends State<PrivacyPage> {
 
   /// 关闭锁定时，需要验证密码
   Future<bool> _handleDisableLock() async {
+    // 兜底：根本没有 PIN（异常态）时无密码可验，直接允许关闭锁定，避免死锁
+    final hasPin = await _storageService.hasPin();
+    if (!hasPin) return true;
+
     final controller = TextEditingController();
-    String? errorText;
+    String? errorText = _isPinLockedOut ? _pinLockErrorText : null;
 
     final verified = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('解锁树洞'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                decoration: InputDecoration(
-                  hintText: '请输入解锁密码',
-                  errorText: errorText,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          // 注册弹窗刷新器，锁屏倒计时可实时刷新本弹窗
+          _pinDialogUpdater = setDialogState;
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('解锁树洞'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  enabled: !_isPinLockedOut,
+                  decoration: InputDecoration(
+                    hintText: _isPinLockedOut ? '请稍后再试' : '请输入解锁密码',
+                    errorText: errorText,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: GestureDetector(
-                  onTap: () {
-                    Navigator.pop(context); // 先关闭当前弹窗
-                    _showForgotPasswordDialogForDisable();
-                  },
-                  child: Text(
-                    '忘记密码？',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.hazeBlue.withValues(alpha: 0.7),
-                      decoration: TextDecoration.underline,
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.pop(context); // 先关闭当前弹窗
+                      _showForgotPasswordDialogForDisable();
+                    },
+                    child: Text(
+                      '忘记密码？',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.hazeBlue.withValues(alpha: 0.7),
+                        decoration: TextDecoration.underline,
+                      ),
                     ),
                   ),
                 ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+              TextButton(
+                onPressed: _isPinLockedOut
+                    ? null
+                    : () async {
+                        final ok = await _storageService.verifyPin(controller.text);
+                        if (ok) {
+                          _resetPinFailures();
+                          if (dialogContext.mounted) Navigator.pop(context, true);
+                        } else {
+                          _pinFailCount += 1;
+                          if (_pinFailCount >= _pinMaxFails) {
+                            _beginPinLockout();
+                          }
+                          setDialogState(() {
+                            errorText = _isPinLockedOut
+                                ? _pinLockErrorText
+                                : '密码错误，还可尝试${_pinMaxFails - _pinFailCount}次';
+                          });
+                        }
+                      },
+                child: Text('解锁', style: TextStyle(color: AppColors.hazeBlue)),
               ),
             ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-            TextButton(
-              onPressed: () async {
-                final ok = await _storageService.verifyPin(controller.text);
-                if (ok) {
-                  Navigator.pop(context, true);
-                } else {
-                  setDialogState(() => errorText = '密码错误');
-                }
-              },
-              child: Text('解锁', style: TextStyle(color: AppColors.hazeBlue)),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
+    _pinDialogUpdater = null;
     return verified ?? false;
   }
 
@@ -743,10 +822,12 @@ class PrivacyPageState extends State<PrivacyPage> {
     );
 
     if (verified == true && mounted) {
-      await _storageService.clearPin();
+      // 不清空旧 PIN：_showCreatePinDialog 成功时才 setPin 覆盖。
+      // 用户中途取消 → 旧 PIN 与锁定状态原样保留，不会出现"锁还在但任意密码可解"的漏洞。
       final set = await _showCreatePinDialog(title: '重置密码', hint: '请设置新的4-6位数字密码');
       if (set == true && mounted) {
         _showRecoveryQASetupDialog();
+        _resetPinFailures();
         await _storageService.setLocked(false);
         setState(() => _isLocked = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -767,7 +848,15 @@ class PrivacyPageState extends State<PrivacyPage> {
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('确认清空'),
-        content: const Text('此操作将删除所有情绪记录，且不可恢复。确定要继续吗？'),
+        content: const Text(
+          '此操作将永久删除以下本机数据，且不可恢复：\n'
+          '· 情绪日记\n'
+          '· 对话记录\n'
+          '· 梦境记录\n'
+          '· 对话摘要与用户画像\n\n'
+          'API 配置、树洞锁定与密码设置不会被删除。\n\n'
+          '确定要继续吗？',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
           TextButton(
@@ -776,7 +865,7 @@ class PrivacyPageState extends State<PrivacyPage> {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: const Text('已清空所有记录'),
+                  content: const Text('已清空情绪日记、对话、梦境等全部数据'),
                   backgroundColor: AppColors.calmGreen,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
@@ -824,66 +913,84 @@ class PrivacyPageState extends State<PrivacyPage> {
   }
 
   /// 验证旧密码弹窗
-  Future<bool?> _showVerifyOldPinDialog() {
+  Future<bool?> _showVerifyOldPinDialog() async {
     final controller = TextEditingController();
-    String? errorText;
+    String? errorText = _isPinLockedOut ? _pinLockErrorText : null;
 
-    return showDialog<bool>(
+    final result = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('验证旧密码'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                decoration: InputDecoration(
-                  hintText: '请输入旧密码',
-                  errorText: errorText,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          // 注册弹窗刷新器，锁屏倒计时可实时刷新本弹窗
+          _pinDialogUpdater = setDialogState;
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('验证旧密码'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  enabled: !_isPinLockedOut,
+                  decoration: InputDecoration(
+                    hintText: _isPinLockedOut ? '请稍后再试' : '请输入旧密码',
+                    errorText: errorText,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: GestureDetector(
-                  onTap: () {
-                    Navigator.pop(context); // 关闭当前弹窗
-                    _showForgotPasswordDialogForChangePin();
-                  },
-                  child: Text(
-                    '忘记密码？',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.hazeBlue.withValues(alpha: 0.7),
-                      decoration: TextDecoration.underline,
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.pop(context); // 关闭当前弹窗
+                      _showForgotPasswordDialogForChangePin();
+                    },
+                    child: Text(
+                      '忘记密码？',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.hazeBlue.withValues(alpha: 0.7),
+                        decoration: TextDecoration.underline,
+                      ),
                     ),
                   ),
                 ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+              TextButton(
+                onPressed: _isPinLockedOut
+                    ? null
+                    : () async {
+                        final verified = await _storageService.verifyPin(controller.text);
+                        if (verified) {
+                          _resetPinFailures();
+                          if (dialogContext.mounted) Navigator.pop(context, true);
+                        } else {
+                          _pinFailCount += 1;
+                          if (_pinFailCount >= _pinMaxFails) {
+                            _beginPinLockout();
+                          }
+                          setDialogState(() {
+                            errorText = _isPinLockedOut
+                                ? _pinLockErrorText
+                                : '密码错误，还可尝试${_pinMaxFails - _pinFailCount}次';
+                          });
+                        }
+                      },
+                child: Text('确认', style: TextStyle(color: AppColors.hazeBlue)),
               ),
             ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-            TextButton(
-              onPressed: () async {
-                final verified = await _storageService.verifyPin(controller.text);
-                if (verified) {
-                  Navigator.pop(context, true);
-                } else {
-                  setDialogState(() => errorText = '密码错误');
-                }
-              },
-              child: Text('确认', style: TextStyle(color: AppColors.hazeBlue)),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
+    _pinDialogUpdater = null;
+    return result;
   }
 
   /// 忘记密码流程（用于修改密码时）
@@ -973,7 +1080,7 @@ class PrivacyPageState extends State<PrivacyPage> {
     );
 
     if (verified == true && mounted) {
-      await _storageService.clearPin();
+      // 不清空旧 PIN：只有新建密码成功后 setPin 才会覆盖旧值；取消则什么都不动
       final set = await _showCreatePinDialog(title: '重置密码', hint: '请设置新的4-6位数字密码');
       if (set == true && mounted) {
         _showRecoveryQASetupDialog();
@@ -1023,8 +1130,8 @@ class PrivacyPageState extends State<PrivacyPage> {
             TextButton(
               onPressed: () async {
                 final pin = controller.text;
-                if (pin.length < 4) {
-                  setDialogState(() => errorText = '密码至少4位');
+                if (!RegExp(r'^\d{4,6}$').hasMatch(pin)) {
+                  setDialogState(() => errorText = '请输入4-6位数字密码');
                   return;
                 }
                 final confirmed = await _showConfirmPinDialog(pin);

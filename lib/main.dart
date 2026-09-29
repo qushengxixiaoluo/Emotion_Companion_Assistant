@@ -26,6 +26,7 @@ void main() async {
   Hive.registerAdapter(ConversationAdapter());
   Hive.registerAdapter(DreamRecordAdapter());
   await StorageService.init();
+  await LlmService().reloadConfig();
   Get.put(AppController());
   runApp(const EmotionCompanionApp());
 }

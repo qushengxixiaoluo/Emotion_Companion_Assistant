@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../app/config/speech_config.dart';
 import '../app/themes/app_colors.dart';
+import '../models/llm_profile.dart';
 import '../services/llm_service.dart';
 import '../services/speech_service.dart';
 import '../services/storage_service.dart';
@@ -850,11 +851,16 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
   }
 
   void _saveLlm() async {
-    await widget.storageService.setLlmBaseUrl(_llmUrlCtrl.text.trim());
-    await widget.storageService.setLlmApiKey(_llmKeyCtrl.text.trim());
-    await widget.storageService.setLlmModel(_llmModelCtrl.text.trim());
+    final url = _llmUrlCtrl.text.trim();
+    final key = _llmKeyCtrl.text.trim();
+    final model = _llmModelCtrl.text.trim();
+    await widget.storageService.setLlmBaseUrl(url);
+    await widget.storageService.setLlmApiKey(key);
+    await widget.storageService.setLlmModel(model);
     await widget.storageService.setLlmConfigSubmitted(true);
     await widget.llmService.reloadConfig();
+    // 同步写入配置档案（多套档案存储）
+    await _syncLlmProfile(baseUrl: url, apiKey: key, model: model);
     if (widget.isFirstLaunch) {
       await widget.storageService.setTtsConfigSubmitted(true);
       await widget.speechService.reloadTtsConfig();
@@ -871,6 +877,42 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
         ),
       );
     }
+  }
+
+  /// 保存 LLM 配置时同步入档：
+  /// - 不存在与当前 baseUrl+model 匹配的档案 → 新建一套（name 取模型名）并设为 active；
+  /// - 已存在匹配的 → 直接 setActive 到它（apiKey 若有变化则顺带更新该档案）。
+  Future<void> _syncLlmProfile({
+    required String baseUrl,
+    required String apiKey,
+    required String model,
+  }) async {
+    if (baseUrl.isEmpty || model.isEmpty) return; // 清空配置时不入档
+
+    final profiles = await widget.storageService.getLlmProfiles();
+    LlmProfile? matched;
+    for (final p in profiles) {
+      if (p.baseUrl == baseUrl && p.model == model) {
+        matched = p;
+        break;
+      }
+    }
+
+    if (matched == null) {
+      matched = LlmProfile(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: model.isNotEmpty ? model : '当前配置',
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        model: model,
+      );
+      await widget.storageService.upsertLlmProfile(matched);
+    } else if (matched.apiKey != apiKey) {
+      matched.apiKey = apiKey;
+      await widget.storageService.upsertLlmProfile(matched);
+    }
+
+    await widget.storageService.setActiveLlmProfileId(matched.id);
   }
 
   void _resetLlmToDefault() async {

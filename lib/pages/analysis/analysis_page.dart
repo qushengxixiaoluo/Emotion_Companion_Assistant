@@ -25,7 +25,11 @@ class _AnalysisPageState extends State<AnalysisPage> {
   }
 
   Future<void> _loadRecords() async {
-    final records = await _storageService.getAllRecords();
+    // 过滤掉 dominantEmotion == '分析中...' 的占位记录，
+    // 覆盖 records.firstOrNull（默认目标记录）与趋势图 _records.take(7) 两处
+    final records = (await _storageService.getAllRecords())
+        .where((r) => r.dominantEmotion != '分析中...')
+        .toList();
     if (mounted) {
       setState(() {
         _records = records;

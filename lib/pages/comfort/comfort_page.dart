@@ -7,18 +7,14 @@ import '../../app/responsive/responsive_utils.dart';
 import '../../app/config/speech_config.dart';
 import '../../services/emotion_service.dart';
 import '../../services/llm_service.dart';
-import '../../services/function_tools.dart';
 import '../../services/ai_comfort_service.dart';
 import '../../services/agents/orchestrator.dart';
-import '../../services/react_agent.dart';
 import '../../services/speech_service.dart';
 import '../../services/storage_service.dart';
 import '../../models/emotion_models.dart';
 import '../../widgets/unified_config_dialog.dart';
+import '../../widgets/llm_profile_manager_dialog.dart';
 import '../../widgets/speech_params_dialog.dart';
-
-/// 对话引擎类型
-enum ChatEngine { normal, multiAgent, react }
 
 class ComfortPage extends StatefulWidget {
   const ComfortPage({super.key});
@@ -40,9 +36,9 @@ class ComfortPageState extends State<ComfortPage> {
   bool _isLoading = false;
   bool _useLlm = true;
   bool _useStream = true;
-  ChatEngine _chatEngine = ChatEngine.multiAgent;
   final AgentOrchestrator _orchestrator = AgentOrchestrator();
-  final Set<String> _summarizedConversationIds = {};
+  /// 会话id → 已摘要时的消息条数：消息没变不重复摘要，有新增才 upsert 重写
+  final Map<String, int> _summarizedMessageCounts = {};
   Timer? _typeTimer;
   Timer? _streamDisplayTimer;
   Timer? _cursorBlinkTimer;
@@ -50,10 +46,15 @@ class ComfortPageState extends State<ComfortPage> {
   int _streamDisplayPos = 0;
   bool _streamEnded = false;
   bool _cursorVisible = true;
+  /// 回复交由定时器继续显示中（_isLoading 要等显示收尾才复位，防止回复被截断）
+  bool _displayPending = false;
+  /// 本次回复的气泡引用：定时器写它而不是 _messages.last，避免切会话后串写
+  _ChatBubble? _activeReplyBubble;
 
   // 语音服务 (豆包 TTS)
   final SpeechService _speechService = SpeechService();
   final AudioPlayer _ttsPlayer = AudioPlayer();
+  StreamSubscription<dynamic>? _playerCompleteSub;
   String? _playingMessageIndex;
   String? _ttsVoiceType;
 
@@ -93,17 +94,6 @@ class ComfortPageState extends State<ComfortPage> {
       return _ttsVoiceType ?? '系统默认语音';
     }
     return SpeechConfig.voiceTypeLabels[_ttsVoiceType ?? ''] ?? _ttsVoiceType ?? '选择音色';
-  }
-
-  String get _engineLabel {
-    switch (_chatEngine) {
-      case ChatEngine.multiAgent:
-        return '多Agent协作';
-      case ChatEngine.react:
-        return 'ReAct推理';
-      case ChatEngine.normal:
-        return '大模型';
-    }
   }
 
   List<Map<String, String>> get _availableVoices {
@@ -167,7 +157,8 @@ class ComfortPageState extends State<ComfortPage> {
   ChatMessage _bubbleToMessage(_ChatBubble bubble) {
     return ChatMessage(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
-      content: bubble.content,
+      // 剥离流式打字光标残留，避免把 "▌" 存进历史
+      content: bubble.content.replaceFirst(RegExp(r'▌+\s*$'), ''),
       isUser: bubble.isUser,
       createdAt: DateTime.now(),
       emotion: bubble.emotion,
@@ -185,9 +176,17 @@ class ComfortPageState extends State<ComfortPage> {
       _conversations.insert(0, _currentConversation!);
     }
     _currentConversation!.updatedAt = now;
-    // 过滤掉欢迎语（不保存到持久化）
+    // 流式显示中途触发保存（如页面销毁）：存完整缓冲而非半截+光标
+    final active = _activeReplyBubble;
+    if (_displayPending && active != null && _streamBuffer.isNotEmpty) {
+      active.content = _streamBuffer;
+      active.isStreaming = false;
+    }
+    // 过滤欢迎语与错误气泡（错误提示是瞬时状态，不入库、不进后续上下文）
     _currentConversation!.messages = _messages
-        .where((b) => b.content != '你好呀，我是你的暖心陪伴师。无论开心还是难过，我都在这里陪你。想说什么都可以告诉我。')
+        .where((b) =>
+            b.content != '你好呀，我是你的暖心陪伴师。无论开心还是难过，我都在这里陪你。想说什么都可以告诉我。' &&
+            !b.isError)
         .map(_bubbleToMessage)
         .toList();
     await _storageService.saveConversation(_currentConversation!);
@@ -198,43 +197,18 @@ class ComfortPageState extends State<ComfortPage> {
   Future<void> _endCurrentConversation() async {
     final conv = _currentConversation;
     if (conv == null) return;
-    // 同一会话在一个 session 内只摘要一次，避免来回切换重复写入
-    if (!_summarizedConversationIds.add(conv.id)) return;
     final bubbles = _messages
         .where((b) => b.content.isNotEmpty && !b.isError && !b.content.startsWith('你好呀，我是你的暖心陪伴师'))
         .toList();
+    // 先确认有实质对话内容，再判断是否需要重写
     if (!bubbles.any((b) => b.isUser)) return;
     final messages = bubbles
         .map((b) => {'role': b.isUser ? 'user' : 'assistant', 'content': b.content})
         .toList();
+    // 消息没变则不重复调 LLM；有新增则 upsert 重写（summary id = 会话id，幂等）
+    if (_summarizedMessageCounts[conv.id] == messages.length) return;
     await _orchestrator.onConversationEnd(conversationId: conv.id, messages: messages);
-  }
-
-  List<Map<String, String>> _buildContextHistory() {
-    return _messages
-        .where((b) => b.content.isNotEmpty && !b.content.startsWith('你好呀，我是你的暖心陪伴师'))
-        .map((b) => {'role': b.isUser ? 'user' : 'assistant', 'content': b.content})
-        .toList();
-  }
-
-  Stream<String> _reactStream(String text) async* {
-    yield* ReactAgent.runStream(
-      userMessage: text,
-      baseUrl: _llmService.baseUrl,
-      apiKey: _llmService.apiKey,
-      model: _llmService.model,
-      contextHistory: _buildContextHistory(),
-    );
-  }
-
-  Future<String> _reactRun(String text) async {
-    return await ReactAgent.run(
-      userMessage: text,
-      baseUrl: _llmService.baseUrl,
-      apiKey: _llmService.apiKey,
-      model: _llmService.model,
-      contextHistory: _buildContextHistory(),
-    );
+    _summarizedMessageCounts[conv.id] = messages.length;
   }
 
   PopupMenuEntry<String> _buildMenuSectionHeader(String title) {
@@ -330,6 +304,7 @@ class ComfortPageState extends State<ComfortPage> {
     _typeTimer?.cancel();
     _streamDisplayTimer?.cancel();
     _cursorBlinkTimer?.cancel();
+    unawaited(_playerCompleteSub?.cancel());
     _ttsPlayer.dispose();
     _speechService.dispose();
     _saveCurrentConversation(); // fire-and-forget
@@ -349,151 +324,179 @@ class ComfortPageState extends State<ComfortPage> {
       _messages.add(_ChatBubble(content: '', isUser: false, emotion: _currentEmotion, isStreaming: true));
     });
 
+    // 固定本轮回复气泡：所有定时器写它，杜绝 _messages.last 被替换后串写
+    _activeReplyBubble = _messages.last;
+    _displayPending = false;
     _textController.clear();
     _scrollToBottom();
 
-    if (_useLlm) {
-      if (_useStream) {
-        // ===== 流式模式：HTTP SSE 接收 + 字词块逐块显示，模拟人类打字 =====
-        _streamBuffer = '';
-        _streamDisplayPos = 0;
-        _streamEnded = false;
-        _cursorVisible = true;
-        _streamDisplayTimer?.cancel();
-        _cursorBlinkTimer?.cancel();
-
-        // 光标闪烁定时器
-        _cursorBlinkTimer = Timer.periodic(const Duration(milliseconds: 530), (_) {
-          if (!mounted) { _cursorBlinkTimer?.cancel(); return; }
-          setState(() => _cursorVisible = !_cursorVisible);
-        });
-
-        // 启动定时器，按字词块节奏显示已缓冲的文本
-        _streamDisplayTimer = Timer.periodic(const Duration(milliseconds: 45), (_) {
-          if (!mounted) { _streamDisplayTimer?.cancel(); return; }
-          if (_streamDisplayPos < _streamBuffer.length) {
-            final chunkSize = _nextChunkSize(_streamBuffer, _streamDisplayPos);
-            _streamDisplayPos += chunkSize;
-          }
-          final cursor = _cursorVisible ? '▌' : '';
-          setState(() {
-            _messages.last.content = _streamBuffer.substring(0, _streamDisplayPos) + cursor;
-            _messages.last.isStreaming = _streamBuffer.isEmpty;
-          });
-          if (_streamDisplayPos > 0) _scrollToBottom();
-          if (_streamEnded && _streamDisplayPos >= _streamBuffer.length) {
-            _streamDisplayTimer?.cancel();
-            _cursorBlinkTimer?.cancel();
-            setState(() {
-              _messages.last.content = _streamBuffer;
-              _messages.last.isStreaming = false;
-            });
-            _saveCurrentConversation().then((_) => _maybeGenerateTitle());
-          }
-        });
-
-        try {
-          final stream = switch (_chatEngine) {
-            ChatEngine.multiAgent => _orchestrator.processStream(text),
-            ChatEngine.react => _reactStream(text),
-            ChatEngine.normal => _llmService.chatStream(text, tools: FunctionTools.toolDefinitions),
-          };
-          await for (final delta in stream) {
-            if (!mounted) break;
-            _streamBuffer += delta;
-          }
-          _streamEnded = true;
-          // 流式返回了空内容（API可能不支持流式），降级到非流式
-          if (_streamBuffer.isEmpty && mounted) {
-            _streamDisplayTimer?.cancel();
-            _cursorBlinkTimer?.cancel();
-            _messages.removeLast();
-            _messages.add(_ChatBubble(content: '', isUser: false, emotion: _currentEmotion, isStreaming: true));
-            final response = switch (_chatEngine) {
-              ChatEngine.multiAgent => await _orchestrator.process(text),
-              ChatEngine.react => await _reactRun(text),
-              ChatEngine.normal => await _llmService.chat(text, tools: FunctionTools.toolDefinitions),
-            };
-            if (mounted) {
-              if (response.contains('失败') || response.contains('错误') || response.contains('异常') || response.contains('无法回复')) {
-                _messages.removeLast();
-                _messages.add(_ChatBubble(
-                  content: '$response\n\n【已自动切换到本地模式回复】\n${_fallbackService.chat(text, _currentEmotion)}',
-                  isUser: false, emotion: _currentEmotion, isError: true,
-                ));
-                _saveCurrentConversation();
-              } else {
-                _typewriterEffect(response);
-              }
-            }
-          }
-        } catch (e) {
+    try {
+      if (_useLlm) {
+        if (_useStream) {
+          // ===== 流式模式：HTTP SSE 接收 + 字词块逐块显示，模拟人类打字 =====
+          _streamBuffer = '';
+          _streamDisplayPos = 0;
+          _streamEnded = false;
+          _cursorVisible = true;
           _streamDisplayTimer?.cancel();
           _cursorBlinkTimer?.cancel();
-          // 流式失败，自动降级到非流式请求
-          if (mounted) {
-            _messages.removeLast();
-            _messages.add(_ChatBubble(content: '', isUser: false, emotion: _currentEmotion, isStreaming: true));
-            final response = switch (_chatEngine) {
-              ChatEngine.multiAgent => await _orchestrator.process(text),
-              ChatEngine.react => await _reactRun(text),
-              ChatEngine.normal => await _llmService.chat(text, tools: FunctionTools.toolDefinitions),
-            };
-            if (mounted) {
-              if (response.contains('失败') || response.contains('错误') || response.contains('异常') || response.contains('无法回复')) {
-                _messages.removeLast();
-                _messages.add(_ChatBubble(
-                  content: '$response\n\n【已自动切换到本地模式回复】\n${_fallbackService.chat(text, _currentEmotion)}',
-                  isUser: false, emotion: _currentEmotion, isError: true,
-                ));
-                _saveCurrentConversation();
-              } else {
-                _typewriterEffect(response);
-              }
+
+          // 光标闪烁定时器
+          _cursorBlinkTimer = Timer.periodic(const Duration(milliseconds: 530), (_) {
+            if (!mounted) { _cursorBlinkTimer?.cancel(); return; }
+            setState(() => _cursorVisible = !_cursorVisible);
+          });
+
+          // 启动定时器，按字词块节奏显示已缓冲的文本（写固定气泡引用）
+          _streamDisplayTimer = Timer.periodic(const Duration(milliseconds: 45), (_) {
+            if (!mounted) { _streamDisplayTimer?.cancel(); return; }
+            final bubble = _activeReplyBubble;
+            if (bubble == null || !_messages.contains(bubble)) {
+              _streamDisplayTimer?.cancel();
+              return;
             }
+            if (_streamDisplayPos < _streamBuffer.length) {
+              final chunkSize = _nextChunkSize(_streamBuffer, _streamDisplayPos);
+              _streamDisplayPos += chunkSize;
+            }
+            final cursor = _cursorVisible ? '▌' : '';
+            setState(() {
+              bubble.content = _streamBuffer.substring(0, _streamDisplayPos) + cursor;
+              bubble.isStreaming = _streamBuffer.isEmpty;
+            });
+            if (_streamDisplayPos > 0) _scrollToBottom();
+            if (_streamEnded && _streamDisplayPos >= _streamBuffer.length) {
+              _streamDisplayTimer?.cancel();
+              _cursorBlinkTimer?.cancel();
+              setState(() {
+                bubble.content = _streamBuffer;
+                bubble.isStreaming = false;
+              });
+              _completeReply(); // 显示收尾后才允许发下一条，防截断
+              _saveCurrentConversation().then((_) => _maybeGenerateTitle());
+            }
+          });
+
+          try {
+            // 统一编排：情绪分析 + 检索 → 回复Agent（Function Calling，失败自动降级 ReAct）
+            final stream = _orchestrator.processStream(text);
+            await for (final delta in stream) {
+              if (!mounted) break;
+              _streamBuffer += delta;
+            }
+            _streamEnded = true;
+            // 流式返回了空内容（API可能不支持流式），降级到非流式
+            if (_streamBuffer.isEmpty && mounted) {
+              _streamDisplayTimer?.cancel();
+              _cursorBlinkTimer?.cancel();
+              _messages.removeLast();
+              _messages.add(_ChatBubble(content: '', isUser: false, emotion: _currentEmotion, isStreaming: true));
+              _activeReplyBubble = _messages.last;
+              try {
+                // appendUserToHistory=false：流路径已写入过该用户消息，避免重复
+                final response = await _orchestrator.process(text, appendUserToHistory: false);
+                if (mounted) {
+                  _startTypewriter(response);
+                } else {
+                  _completeReply();
+                }
+              } catch (e) {
+                _showLocalFallback(text, e);
+              }
+            } else if (mounted) {
+              // 内容已到达，交由显示定时器收尾后复位 _isLoading
+              _displayPending = true;
+            } else {
+              _completeReply();
+            }
+          } catch (e) {
+            // 流式失败：错误不当正常回复展示，直接本地兜底
+            _streamDisplayTimer?.cancel();
+            _cursorBlinkTimer?.cancel();
+            _showLocalFallback(text, e);
+          }
+        } else {
+          // ===== 非流式模式：先请求，再打字机逐字显示 =====
+          try {
+            final response = await _orchestrator.process(text);
+            if (mounted) {
+              _startTypewriter(response);
+            } else {
+              _completeReply();
+            }
+          } catch (e) {
+            _showLocalFallback(text, e);
           }
         }
       } else {
-        // ===== 非流式模式：先请求，再打字机逐字显示 =====
-        final response = switch (_chatEngine) {
-          ChatEngine.multiAgent => await _orchestrator.process(text),
-          ChatEngine.react => await _reactRun(text),
-          ChatEngine.normal => await _llmService.chat(text, tools: FunctionTools.toolDefinitions),
-        };
+        // 本地预设话术模式：也做打字机效果
+        await Future.delayed(const Duration(milliseconds: 300));
+        final response = _fallbackService.chat(text, _currentEmotion);
         if (mounted) {
-          if (response.contains('失败') ||
-              response.contains('错误') ||
-              response.contains('异常') ||
-              response.contains('无法回复')) {
-            setState(() {
-              _messages.removeLast();
-              _messages.add(_ChatBubble(
-                content: '$response\n\n【已自动切换到本地模式回复】\n${_fallbackService.chat(text, _currentEmotion)}',
-                isUser: false,
-                emotion: _currentEmotion,
-                isError: true,
-              ));
-            });
-            _saveCurrentConversation();
-          } else {
-            // 打字机效果逐字显示
-            _typewriterEffect(response);
-          }
+          _startTypewriter(response);
+        } else {
+          _completeReply();
         }
       }
-    } else {
-      // 本地预设话术模式：也做打字机效果
-      await Future.delayed(const Duration(milliseconds: 300));
-      final response = _fallbackService.chat(text, _currentEmotion);
-      if (mounted) _typewriterEffect(response);
+    } catch (e) {
+      // 兜底：任何未预料的异常都不允许把输入框锁死
+      _showLocalFallback(text, e);
+    } finally {
+      // 显示仍在进行时由显示收尾逻辑复位；否则立即复位
+      if (!_displayPending && _isLoading) {
+        _completeReply();
+      }
     }
+  }
 
+  /// 启动打字机显示（_isLoading 保持到打字机收尾，防连发截断）
+  void _startTypewriter(String fullText) {
+    _displayPending = true;
+    _typewriterEffect(fullText);
+  }
+
+  /// 本轮回复结束：复位加载态（显示收尾与异常路径统一入口）
+  void _completeReply() {
+    _displayPending = false;
     if (mounted) {
       setState(() {
         _isLoading = false;
-        if (_messages.isNotEmpty) _messages.last.isStreaming = false;
+        final bubble = _activeReplyBubble;
+        if (bubble != null && _messages.contains(bubble)) {
+          bubble.isStreaming = false;
+        } else if (_messages.isNotEmpty) {
+          _messages.last.isStreaming = false;
+        }
       });
+    } else {
+      _isLoading = false;
     }
+    _activeReplyBubble = null;
+  }
+
+  /// 失败降级：写本地兜底话术并标记 isError（不入库、不进上下文）
+  void _showLocalFallback(String userText, Object error) {
+    if (!mounted) {
+      _completeReply();
+      return;
+    }
+    final detail = '$error';
+    final shortDetail = detail.length > 120 ? '${detail.substring(0, 120)}…' : detail;
+    final content = '【回复失败：$shortDetail】\n已切换到本地模式回复：\n${_fallbackService.chat(userText, _currentEmotion)}';
+    final bubble = _activeReplyBubble;
+    setState(() {
+      if (bubble != null && _messages.contains(bubble)) {
+        bubble.content = content;
+        bubble.isStreaming = false;
+        bubble.isError = true;
+      } else if (_messages.isNotEmpty) {
+        _messages.last.content = content;
+        _messages.last.isStreaming = false;
+        _messages.last.isError = true;
+      }
+    });
+    _completeReply();
+    _saveCurrentConversation();
   }
 
   /// 计算下一块显示的字数，模拟人类逐词/逐句打字的节奏
@@ -511,7 +514,7 @@ class ComfortPageState extends State<ComfortPage> {
     return size;
   }
 
-  /// 打字机效果：逐字显示文本
+  /// 打字机效果：逐字显示文本（写固定气泡引用，收尾时复位 _isLoading）
   void _typewriterEffect(String fullText) {
     int index = 0;
     _typeTimer?.cancel();
@@ -521,17 +524,24 @@ class ComfortPageState extends State<ComfortPage> {
         timer.cancel();
         return;
       }
+      final bubble = _activeReplyBubble;
+      if (bubble == null || !_messages.contains(bubble)) {
+        timer.cancel();
+        _completeReply();
+        return;
+      }
       if (index <= fullText.length) {
         setState(() {
-          _messages.last.content = fullText.substring(0, index);
+          bubble.content = fullText.substring(0, index);
         });
         index++;
         _scrollToBottom();
       } else {
         timer.cancel();
         setState(() {
-          _messages.last.isStreaming = false;
+          bubble.isStreaming = false;
         });
+        _completeReply(); // 打字完成才允许发下一条
         _saveCurrentConversation().then((_) => _maybeGenerateTitle());
       }
     });
@@ -598,7 +608,9 @@ class ComfortPageState extends State<ComfortPage> {
       final audioBytes = await _speechService.synthesizeToBytes(plainText);
       if (audioBytes != null && mounted) {
         await _ttsPlayer.play(BytesSource(audioBytes));
-        _ttsPlayer.onPlayerComplete.listen((_) {
+        // 先取消旧订阅，避免重复播放导致监听器累积
+        await _playerCompleteSub?.cancel();
+        _playerCompleteSub = _ttsPlayer.onPlayerComplete.listen((_) {
           if (mounted) setState(() => _playingMessageIndex = null);
         });
       } else {
@@ -776,7 +788,7 @@ class ComfortPageState extends State<ComfortPage> {
             style: Theme.of(context).textTheme.titleSmall,
           ),
           Text(
-            _useLlm ? '$_engineLabel${_useStream ? " · 实时流式" : " · 打字机"}' : '本地模式 · 打字机',
+            _useLlm ? (_useStream ? '实时流式 · 智能编排' : '打字机 · 智能编排') : '本地模式 · 打字机',
             style: TextStyle(
               fontSize: 11,
               color: themeColor.withValues(alpha: 0.55),
@@ -824,32 +836,6 @@ class ComfortPageState extends State<ComfortPage> {
                 subtitle: _useStream ? '点击切换打字机' : '点击切换流式',
               ),
               const PopupMenuDivider(height: 1),
-              _buildMenuSectionHeader('对话引擎'),
-              _buildSettingItem(
-                value: 'engine_multi_agent',
-                icon: Icons.hub_outlined,
-                color: AppColors.gentlePurple,
-                title: '多Agent协作模式',
-                subtitle: '情绪分析 + 知识检索 + 回复生成',
-                selected: _chatEngine == ChatEngine.multiAgent,
-              ),
-              _buildSettingItem(
-                value: 'engine_react',
-                icon: Icons.psychology_alt_outlined,
-                color: AppColors.softOrange,
-                title: 'ReAct推理模式',
-                subtitle: '思考-行动-观察循环',
-                selected: _chatEngine == ChatEngine.react,
-              ),
-              _buildSettingItem(
-                value: 'engine_normal',
-                icon: Icons.bolt_outlined,
-                color: AppColors.hazeBlue,
-                title: '普通模式',
-                subtitle: 'Function Calling 工具调用',
-                selected: _chatEngine == ChatEngine.normal,
-              ),
-              const PopupMenuDivider(height: 1),
               _buildMenuSectionHeader('语音设置'),
               _buildSettingItem(
                 value: 'voice',
@@ -867,6 +853,13 @@ class ComfortPageState extends State<ComfortPage> {
               ),
               const PopupMenuDivider(height: 1),
               _buildMenuSectionHeader('更多'),
+              _buildSettingItem(
+                value: 'llm_profiles',
+                icon: Icons.tune,
+                color: AppColors.calmGreen,
+                title: '模型配置',
+                subtitle: '多套配置管理与切换',
+              ),
               _buildSettingItem(
                 value: 'api_config',
                 icon: Icons.api,
@@ -927,27 +920,18 @@ class ComfortPageState extends State<ComfortPage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
-    } else if (value == 'engine_multi_agent' || value == 'engine_react' || value == 'engine_normal') {
-      setState(() {
-        switch (value) {
-          case 'engine_multi_agent':
-            _chatEngine = ChatEngine.multiAgent;
-            break;
-          case 'engine_react':
-            _chatEngine = ChatEngine.react;
-            break;
-          default:
-            _chatEngine = ChatEngine.normal;
+    } else if (value == 'llm_profiles') {
+      // 模型配置管理：多套档案的新增/编辑/删除/切换
+      showLlmProfileManagerDialog(context).then((_) async {
+        await _llmService.reloadConfig();
+        if (mounted) {
+          setState(() {
+            if (!_llmService.isConfigured()) {
+              _useLlm = false;
+            }
+          });
         }
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('已切换到$_engineLabel'),
-          backgroundColor: AppColors.hazeBlue,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
     } else if (value == 'voice') {
       _showVoicePicker();
     } else if (value == 'api_config') {
@@ -1693,6 +1677,8 @@ class ComfortPageState extends State<ComfortPage> {
   // ============================================================
 
   Future<void> _newConversation() async {
+    // 回复生成/显示中禁止切换，防止流式内容串写到新会话
+    if (_isLoading) return;
     // 保存当前对话（如果有内容）
     if (_currentConversation != null) {
       await _saveCurrentConversation();
@@ -1705,10 +1691,13 @@ class ComfortPageState extends State<ComfortPage> {
     _addWelcomeMessage();
     await _storageService.setActiveConversationId(null);
     _showConversationPanel = false;
+    if (!mounted) return;
     setState(() {});
   }
 
   Future<void> _switchConversation(Conversation conv) async {
+    // 回复生成/显示中禁止切换，防止流式内容串写到目标会话
+    if (_isLoading) return;
     if (_currentConversation?.id == conv.id) {
       _scaffoldKey.currentState?.closeEndDrawer();
       _showConversationPanel = false;
@@ -1723,10 +1712,13 @@ class ComfortPageState extends State<ComfortPage> {
     await _storageService.setActiveConversationId(conv.id);
     _scaffoldKey.currentState?.closeEndDrawer();
     _showConversationPanel = false;
+    if (!mounted) return;
     setState(() {});
   }
 
   Future<void> _deleteConversation(Conversation conv) async {
+    // 回复生成/显示中禁止删除，防止流式内容串写
+    if (_isLoading) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1773,6 +1765,7 @@ class ComfortPageState extends State<ComfortPage> {
     } else if (_currentConversation == null) {
       await _storageService.setActiveConversationId(null);
     }
+    if (!mounted) return;
     setState(() {});
   }
 

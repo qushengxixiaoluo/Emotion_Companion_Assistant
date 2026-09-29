@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:hive_ce/hive.dart';
 import 'package:crypto/crypto.dart';
 import '../models/emotion_models.dart';
+import '../models/llm_profile.dart';
 import '../app/config/speech_config.dart';
 
 class StorageService {
@@ -36,6 +37,8 @@ class StorageService {
   static const String _pendingDreamIdKey = 'pending_dream_id';
   static const String _darkModeKey = 'dark_mode';
   static const String _llmConfigSubmittedKey = 'llm_config_submitted';
+  static const String _llmProfilesKey = 'llm_profiles'; // JSON 数组（字符串）
+  static const String _llmActiveProfileKey = 'llm_active_profile_id';
   static const String _ttsConfigSubmittedKey = 'tts_config_submitted';
   static const String _fortuneDateKey = 'fortune_date';
   static const String _fortuneLevelKey = 'fortune_level';
@@ -72,8 +75,19 @@ class StorageService {
     await _records().delete(id);
   }
 
+  /// 仅清空情绪日记（不触碰对话、梦境、画像等其他数据）
+  Future<void> clearEmotionRecords() async {
+    await _records().clear();
+  }
+
+  /// 清空所有用户数据：情绪日记 + 对话记录 + 梦境记录 + 对话摘要 + 用户画像。
+  /// 注意：不清 settings box（API 配置、树洞锁定/PIN、密保等设置全部保留）。
   Future<void> clearAllRecords() async {
     await _records().clear();
+    await _conversations().clear();
+    await _dreams().clear();
+    await _summaries().clear();
+    await _userProfile().clear();
   }
 
   // ===== 树洞锁定 =====
@@ -89,7 +103,9 @@ class StorageService {
 
   Future<bool> verifyPin(String pin) async {
     final stored = _settings().get(_pinKey);
-    if (stored == null) return true;
+    // 未设置 PIN 时一律校验失败：绝不允许"无 PIN 万能密码"。
+    // 锁屏 UI 侧需配合 hasPin() 兜底，避免"已锁定但无 PIN"死锁。
+    if (stored == null) return false;
     final hashed = md5.convert(utf8.encode(pin)).toString();
     return hashed == stored;
   }
@@ -245,6 +261,86 @@ class StorageService {
     await _settings().delete(_llmBaseUrlKey);
     await _settings().delete(_llmApiKeyKey);
     await _settings().delete(_llmModelKey);
+  }
+
+  // ===== 大模型配置档案（多套配置，可切换） =====
+
+  /// 读取全部配置档案；列表为空时若 legacy 三键已有配置，
+  /// 惰性迁移出一套名为「当前配置」的档案并设为 active。
+  Future<List<LlmProfile>> getLlmProfiles() async {
+    var profiles = await _readLlmProfilesRaw();
+
+    if (profiles.isEmpty) {
+      final url = await getLlmBaseUrl();
+      final model = await getLlmModel();
+      if (url != null && url.isNotEmpty && model != null && model.isNotEmpty) {
+        final migrated = LlmProfile(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          name: '当前配置',
+          baseUrl: url,
+          apiKey: await getLlmApiKey() ?? '',
+          model: model,
+        );
+        profiles = [migrated];
+        await saveLlmProfiles(profiles);
+        await setActiveLlmProfileId(migrated.id);
+      }
+    }
+
+    return profiles;
+  }
+
+  Future<List<LlmProfile>> _readLlmProfilesRaw() async {
+    final raw = _settings().get(_llmProfilesKey);
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw) as List<dynamic>;
+        return decoded
+            .whereType<Map>()
+            .map((m) => LlmProfile.fromJson(Map<String, dynamic>.from(m)))
+            .toList();
+      } catch (_) {
+        return <LlmProfile>[];
+      }
+    }
+    if (raw is List) {
+      // 兼容历史上直接以 List 形式存入的情况
+      return raw
+          .whereType<Map>()
+          .map((m) => LlmProfile.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+    }
+    return <LlmProfile>[];
+  }
+
+  Future<void> saveLlmProfiles(List<LlmProfile> profiles) async {
+    final encoded = jsonEncode(profiles.map((p) => p.toJson()).toList());
+    await _settings().put(_llmProfilesKey, encoded);
+  }
+
+  Future<String?> getActiveLlmProfileId() async =>
+      _settings().get(_llmActiveProfileKey);
+
+  Future<void> setActiveLlmProfileId(String id) async =>
+      _settings().put(_llmActiveProfileKey, id);
+
+  /// 把档案写入 legacy 三键，使 LlmService 等现有读取方零改动即生效。
+  Future<void> applyLlmProfile(LlmProfile p) async {
+    await setLlmBaseUrl(p.baseUrl);
+    await setLlmApiKey(p.apiKey);
+    await setLlmModel(p.model);
+  }
+
+  /// 按 id 替换或追加后整体保存。
+  Future<void> upsertLlmProfile(LlmProfile p) async {
+    final profiles = await getLlmProfiles(); // 内含惰性迁移，避免覆盖 legacy 配置
+    final index = profiles.indexWhere((e) => e.id == p.id);
+    if (index >= 0) {
+      profiles[index] = p;
+    } else {
+      profiles.add(p);
+    }
+    await saveLlmProfiles(profiles);
   }
 
   // ===== 梦境记录 =====

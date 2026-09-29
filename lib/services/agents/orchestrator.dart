@@ -42,7 +42,7 @@ class AgentOrchestrator {
     }
   }
 
-  Future<String> process(String userMessage) async {
+  Future<String> process(String userMessage, {bool appendUserToHistory = true}) async {
     developer.log('【Orchestrator】开始处理(非流式): $userMessage');
 
     try {
@@ -58,6 +58,7 @@ class AgentOrchestrator {
         userMessage: userMessage,
         emotionResult: emotionResult,
         retrievedInfo: retrievedInfo,
+        appendUserToHistory: appendUserToHistory,
       );
     } catch (e) {
       developer.log('【Orchestrator】处理异常: $e');
