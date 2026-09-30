@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 import 'package:http/http.dart' as http;
 import 'function_tools.dart';
+import 'llm_api_adapter.dart';
 
 class ReactAgent {
   static const int maxIterations = 5;
@@ -30,6 +31,7 @@ Observation: 工具返回的结果（由系统自动填入）
     required String baseUrl,
     required String apiKey,
     required String model,
+    String apiFormat = LlmApiAdapter.formatOpenai,
     List<Map<String, String>>? contextHistory,
   }) async {
     final messages = <Map<String, String>>[
@@ -42,7 +44,7 @@ Observation: 工具返回的结果（由系统自动填入）
     messages.add({'role': 'user', 'content': userMessage});
 
     for (int i = 0; i < maxIterations; i++) {
-      final response = await _callLlm(baseUrl: baseUrl, apiKey: apiKey, model: model, messages: messages);
+      final response = await _callLlm(baseUrl: baseUrl, apiKey: apiKey, model: model, apiFormat: apiFormat, messages: messages);
       if (response == null) return null;
 
       final actionMatch = parseAction(response);
@@ -62,7 +64,7 @@ Observation: 工具返回的结果（由系统自动填入）
       messages.add({'role': 'user', 'content': 'Observation: $toolResult\n\n请根据以上工具返回的结果继续思考和回复。'});
     }
 
-    final lastResponse = await _callLlm(baseUrl: baseUrl, apiKey: apiKey, model: model, messages: messages);
+    final lastResponse = await _callLlm(baseUrl: baseUrl, apiKey: apiKey, model: model, apiFormat: apiFormat, messages: messages);
     if (lastResponse == null) return null;
     final finalText = lastResponse.trim();
     // 循环耗尽后模型仍可能输出 Thought/Action 推理原文：剥离，不把内部推理展示给用户
@@ -105,19 +107,28 @@ Observation: 工具返回的结果（由系统自动填入）
     return {'toolName': toolName, 'args': jsonEncode(args)};
   }
 
+  /// 单次 LLM 调用：URL/请求头/请求体/响应解析全部复用 LlmApiAdapter，
+  /// OpenAI 兼容与 Anthropic 原生格式在此自动切换（返回内容为纯文本）。
   static Future<String?> _callLlm({
     required String baseUrl, required String apiKey, required String model,
+    String apiFormat = LlmApiAdapter.formatOpenai,
     required List<Map<String, String>> messages,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/chat/completions');
-      final response = await http.post(uri,
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
-        body: jsonEncode({'model': model, 'messages': messages, 'max_tokens': 2048, 'temperature': 0.7}),
+      final response = await http.post(
+        Uri.parse(LlmApiAdapter.chatUrl(baseUrl, apiFormat)),
+        headers: LlmApiAdapter.headers(apiKey, apiFormat),
+        body: jsonEncode(LlmApiAdapter.buildBody(
+          model: model,
+          messages: messages,
+          maxTokens: 2048,
+          temperature: 0.7,
+          apiFormat: apiFormat,
+        )),
       ).timeout(const Duration(seconds: 60));
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['choices']?[0]?['message']?['content'] as String?;
+        final message = LlmApiAdapter.parseMessage(response.body, apiFormat);
+        return message?['content'] as String?;
       }
       return null;
     } catch (e) {

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../app/styles/app_styles.dart';
+import '../app/styles/ui_style.dart';
 import '../app/themes/app_colors.dart';
 import '../models/emotion_models.dart';
 import '../services/storage_service.dart';
@@ -137,7 +139,7 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      // shape 交给主题 dialogTheme（2px 描边 + radius 20）
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440, maxHeight: 680),
@@ -168,10 +170,10 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: AppColors.hazeBlue.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: AppRadius.smB,
             ),
-            child: const Icon(Icons.calendar_month_outlined,
-                size: 18, color: AppColors.hazeBlue),
+            child: Icon(Icons.calendar_month_outlined,
+                size: 18, color: Theme.of(context).colorScheme.onSurface),
           ),
           const SizedBox(width: 10),
           Text(
@@ -183,7 +185,7 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
           const Spacer(),
           IconButton(
             icon: Icon(Icons.close, size: 20,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
             onPressed: () => Navigator.of(context).pop(),
           ),
         ],
@@ -198,7 +200,7 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
         children: [
           IconButton(
             icon: Icon(Icons.chevron_left, size: 22,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
             onPressed: () => _changeMonth(-1),
           ),
           Expanded(
@@ -213,7 +215,7 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
           ),
           IconButton(
             icon: Icon(Icons.chevron_right, size: 22,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
             onPressed: () => _changeMonth(1),
           ),
         ],
@@ -233,7 +235,7 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
                       l,
                       style: TextStyle(
                         fontSize: 11,
-                        color: AppColors.textHint.withValues(alpha: 0.7),
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                   ),
@@ -275,11 +277,9 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
                   : (isToday
                       ? AppColors.hazeBlue.withValues(alpha: 0.06)
                       : Colors.transparent),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: AppRadius.smB,
               border: isSelected
-                  ? Border.all(
-                      color: AppColors.hazeBlue.withValues(alpha: 0.5),
-                      width: 1.2)
+                  ? AppStroke.all(context, width: AppStroke.thin)
                   : null,
             ),
             child: Column(
@@ -352,7 +352,7 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
               Text(
                 '${dayRecords.length} 条记录',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
               ),
             ],
@@ -364,6 +364,8 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
             width: double.infinity,
             child: CustomPaint(
               painter: _DayEmotionChartPainter(
+                isDark: Theme.of(context).brightness == Brightness.dark,
+                style: UiStyleScope.of(context),
                 points: dayRecords
                     .map((r) => _DayPoint(
                           timeFraction:
@@ -383,7 +385,7 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
               '情绪指数：开心/平静（上） vs 悲伤/焦虑等（下）',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontSize: 10.5,
-                    color: AppColors.textHint.withValues(alpha: 0.8),
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
             ),
           ),
@@ -401,14 +403,14 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
         child: Column(
           children: [
             Icon(Icons.event_available_outlined,
-                size: 34, color: AppColors.hazeBlue.withValues(alpha: 0.4)),
+                size: 34, color: Theme.of(context).colorScheme.onSurface),
             const SizedBox(height: 10),
             Text(title,
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text(subtitle,
                 style: TextStyle(
-                    fontSize: 12, color: AppColors.textHint.withValues(alpha: 0.9))),
+                    fontSize: 12, color: Theme.of(context).colorScheme.onSurface)),
           ],
         ),
       ),
@@ -423,9 +425,9 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withOpacity(0.6),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.divider.withOpacity(0.4)),
+        color: Theme.of(context).cardColor.withValues(alpha: 0.6),
+        borderRadius: AppRadius.smB,
+        border: AppStroke.all(context, width: AppStroke.hairline),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -445,13 +447,13 @@ class _EmotionArchiveDialogState extends State<EmotionArchiveDialog> {
                     Text(time,
                         style: TextStyle(
                             fontSize: 11,
-                            color: AppColors.textHint.withValues(alpha: 0.9))),
+                            color: Theme.of(context).colorScheme.onSurface)),
                     const SizedBox(width: 6),
                     Text(r.dominantEmotion,
                         style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: color)),
+                            color: Theme.of(context).colorScheme.onSurface)),
                   ],
                 ),
                 const SizedBox(height: 3),
@@ -492,13 +494,42 @@ class _DayPoint {
 /// 当日情绪变化折线图：横轴 0-24 点，纵轴 情绪指数 -1..1（0 为中性基线）
 class _DayEmotionChartPainter extends CustomPainter {
   final List<_DayPoint> points;
-  _DayEmotionChartPainter({required this.points});
+  final bool isDark;
+  final AppUiStyle style;
+  _DayEmotionChartPainter({
+    required this.points,
+    required this.isDark,
+    this.style = AppUiStyle.lowPoly,
+  });
+
+  bool get _watercolor => style == AppUiStyle.watercolor;
+
+  /// 水彩：线宽收细 0.3，圆头手绘感；lowPoly 原值
+  double _sw(double w) => _watercolor && w > 0.7 ? w - 0.3 : w;
+
+  /// 语义色/面片填充在水彩下 alpha ×0.75（更清透）
+  double _fillA(double a) => _watercolor ? a * 0.75 : a;
+
+  /// 描边：lowPoly 保持原样（butt 直角），水彩收细 + 圆头圆角
+  Paint _stroke(double width, Color color) {
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _sw(width);
+    if (_watercolor) {
+      p
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+    }
+    return p;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     const padL = 8.0, padR = 8.0, padT = 10.0, padB = 18.0;
     final w = size.width - padL - padR;
     final h = size.height - padT - padB;
+    final ink = AppStroke.ink(isDark: isDark, style: style);
 
     Offset posOf(_DayPoint p) {
       final x = padL + p.timeFraction * w;
@@ -508,18 +539,16 @@ class _DayEmotionChartPainter extends CustomPainter {
 
     // 中性基线（index=0）
     final baseY = padT + h / 2;
-    final baseLine = Paint()
-      ..color = AppColors.textHint.withValues(alpha: 0.25)
-      ..strokeWidth = 1;
+    final baseLine = _stroke(1, ink.withValues(alpha: 0.30));
     canvas.drawLine(Offset(padL, baseY), Offset(size.width - padR, baseY), baseLine);
 
     // 时段刻度
-    final tickPaint = Paint()
-      ..color = AppColors.textHint.withValues(alpha: 0.45);
+    final tickPaint = _stroke(1, ink.withValues(alpha: 0.45));
     final tp = TextPainter(
-      text: const TextSpan(
+      text: TextSpan(
         text: '',
-        style: TextStyle(fontSize: 8.5, color: AppColors.textHint),
+        style: TextStyle(
+            fontSize: 8.5, color: ink),
       ),
       textDirection: TextDirection.ltr,
     );
@@ -530,7 +559,7 @@ class _DayEmotionChartPainter extends CustomPainter {
       tp.text = TextSpan(
         text: '$hour',
         style: TextStyle(
-            fontSize: 8.5, color: AppColors.textHint.withValues(alpha: 0.8)),
+            fontSize: 8.5, color: ink),
       );
       tp.layout();
       final dx = (x - tp.width / 2).clamp(0.0, (size.width - tp.width).clamp(0.0, double.infinity));
@@ -539,30 +568,51 @@ class _DayEmotionChartPainter extends CustomPainter {
 
     if (points.isEmpty) return;
 
-    // 折线
+    // 折线（含闭合到基线的低透明面片）
     if (points.length > 1) {
       final sorted = [...points]..sort((a, b) => a.timeFraction.compareTo(b.timeFraction));
       final path = Path()..moveTo(posOf(sorted.first).dx, posOf(sorted.first).dy);
       for (final p in sorted.skip(1)) {
         path.lineTo(posOf(p).dx, posOf(p).dy);
       }
+
+      // 面片：折线闭合到中性基线，画在折线之前
+      final areaPath = Path.from(path)
+        ..lineTo(posOf(sorted.last).dx, baseY)
+        ..lineTo(posOf(sorted.first).dx, baseY)
+        ..close();
+      canvas.drawPath(
+        areaPath,
+        Paint()..color = AppColors.hazeBlue.withValues(alpha: _fillA(0.10)),
+      );
+
       final linePaint = Paint()
-        ..color = AppColors.hazeBlue.withValues(alpha: 0.7)
+        ..color = ink
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.8
+        ..strokeWidth = _sw(2.0)
         ..strokeCap = StrokeCap.round;
       canvas.drawPath(path, linePaint);
     }
 
-    // 数据点（按主导情绪着色）
+    // 数据点（按主导情绪着色）：菱形实色 + ink 描边，无光晕
     for (final p in points) {
       final c = posOf(p);
-      canvas.drawCircle(c, 5, Paint()..color = p.color.withValues(alpha: 0.28));
-      canvas.drawCircle(c, 3, Paint()..color = p.color);
+      const r = 5.0;
+      final diamond = Path()
+        ..moveTo(c.dx, c.dy - r)
+        ..lineTo(c.dx + r, c.dy)
+        ..lineTo(c.dx, c.dy + r)
+        ..lineTo(c.dx - r, c.dy)
+        ..close();
+      canvas.drawPath(
+          diamond, Paint()..color = p.color.withValues(alpha: _fillA(p.color.a)));
+      canvas.drawPath(diamond, _stroke(1.5, ink));
     }
   }
 
   @override
   bool shouldRepaint(covariant _DayEmotionChartPainter oldDelegate) =>
-      oldDelegate.points != points;
+      oldDelegate.points != points ||
+      oldDelegate.isDark != isDark ||
+      oldDelegate.style != style;
 }

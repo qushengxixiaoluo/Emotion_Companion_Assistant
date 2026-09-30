@@ -26,6 +26,8 @@ class StorageService {
   static const String _llmBaseUrlKey = 'llm_base_url';
   static const String _llmApiKeyKey = 'llm_api_key';
   static const String _llmModelKey = 'llm_model';
+  // API 格式：'openai'（OpenAI 兼容，默认）| 'anthropic'（Anthropic 原生）
+  static const String _llmApiFormatKey = 'llm_api_format';
   static const String _ttsBaseUrlKey = 'tts_base_url';
   static const String _ttsApiKeyKey = 'tts_api_key';
   static const String _ttsModelKey = 'tts_model';
@@ -36,6 +38,8 @@ class StorageService {
   static const String _pendingDreamTextKey = 'pending_dream_text';
   static const String _pendingDreamIdKey = 'pending_dream_id';
   static const String _darkModeKey = 'dark_mode';
+  // 外观风格：'lowpoly'（贴纸描边，默认）| 'watercolor'（水彩天空）
+  static const String _uiStyleKey = 'ui_style';
   static const String _llmConfigSubmittedKey = 'llm_config_submitted';
   static const String _llmProfilesKey = 'llm_profiles'; // JSON 数组（字符串）
   static const String _llmActiveProfileKey = 'llm_active_profile_id';
@@ -217,6 +221,12 @@ class StorageService {
     }
   }
 
+  // ===== 外观风格 =====
+
+  Future<String?> getUiStyle() async => _settings().get(_uiStyleKey);
+  Future<void> setUiStyle(String style) async =>
+      _settings().put(_uiStyleKey, style);
+
   // ===== 大模型配置 =====
 
   Future<String?> getLlmBaseUrl() async => _settings().get(_llmBaseUrlKey);
@@ -244,6 +254,17 @@ class StorageService {
     }
   }
 
+  /// 读取 LLM API 格式（'openai' | 'anthropic'）；未设置返回 null，
+  /// 读取方按 OpenAI 兼容默认处理
+  Future<String?> getLlmApiFormat() async => _settings().get(_llmApiFormatKey);
+  Future<void> setLlmApiFormat(String? format) async {
+    if (format == null || format.isEmpty) {
+      await _settings().delete(_llmApiFormatKey);
+    } else {
+      await _settings().put(_llmApiFormatKey, format);
+    }
+  }
+
   Future<bool> hasLlmUserConfig() async {
     final url = await getLlmBaseUrl();
     final key = await getLlmApiKey();
@@ -261,11 +282,12 @@ class StorageService {
     await _settings().delete(_llmBaseUrlKey);
     await _settings().delete(_llmApiKeyKey);
     await _settings().delete(_llmModelKey);
+    await _settings().delete(_llmApiFormatKey);
   }
 
   // ===== 大模型配置档案（多套配置，可切换） =====
 
-  /// 读取全部配置档案；列表为空时若 legacy 三键已有配置，
+  /// 读取全部配置档案；列表为空时若 legacy 键已有配置，
   /// 惰性迁移出一套名为「当前配置」的档案并设为 active。
   Future<List<LlmProfile>> getLlmProfiles() async {
     var profiles = await _readLlmProfilesRaw();
@@ -280,6 +302,7 @@ class StorageService {
           baseUrl: url,
           apiKey: await getLlmApiKey() ?? '',
           model: model,
+          apiFormat: await getLlmApiFormat() ?? 'openai',
         );
         profiles = [migrated];
         await saveLlmProfiles(profiles);
@@ -324,11 +347,12 @@ class StorageService {
   Future<void> setActiveLlmProfileId(String id) async =>
       _settings().put(_llmActiveProfileKey, id);
 
-  /// 把档案写入 legacy 三键，使 LlmService 等现有读取方零改动即生效。
+  /// 把档案写入 legacy 键（含 API 格式），使 LlmService 等现有读取方零改动即生效。
   Future<void> applyLlmProfile(LlmProfile p) async {
     await setLlmBaseUrl(p.baseUrl);
     await setLlmApiKey(p.apiKey);
     await setLlmModel(p.model);
+    await setLlmApiFormat(p.apiFormat);
   }
 
   /// 按 id 替换或追加后整体保存。

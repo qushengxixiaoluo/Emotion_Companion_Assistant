@@ -3,6 +3,8 @@ import 'package:get/get.dart';
 import 'package:hive_ce_flutter/hive_ce_flutter.dart';
 import 'app/themes/app_theme.dart';
 import 'app/themes/app_colors.dart';
+import 'app/styles/app_styles.dart';
+import 'app/styles/ui_style.dart';
 import 'app/routes/app_routes.dart';
 import 'app/app_controller.dart';
 import 'pages/home/home_page.dart';
@@ -26,6 +28,8 @@ void main() async {
   Hive.registerAdapter(ConversationAdapter());
   Hive.registerAdapter(DreamRecordAdapter());
   await StorageService.init();
+  // 恢复上次选择的 UI 风格（lowpoly / watercolor），须在 runApp 前完成
+  await UiStyleScope.restore();
   await LlmService().reloadConfig();
   Get.put(AppController());
   runApp(const EmotionCompanionApp());
@@ -44,21 +48,30 @@ class _EmotionCompanionAppState extends State<EmotionCompanionApp> {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<AppController>();
-    return Obx(() => GetMaterialApp(
-          title: '抱抱情绪云',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
-          themeMode: controller.isDarkMode.value ? ThemeMode.dark : ThemeMode.light,
-          home: _showSplash
-              ? AppSplash(
-                  appInit: controller.ready,
-                  isDarkMode: controller.isDarkMode.value,
-                  onFinished: () => setState(() => _showSplash = false),
-                )
-              : const MainNavigation(),
-          getPages: AppRoutes.routes,
-        ));
+    // 根部接线：监听全局风格 notifier → 整树重建换肤（不重启、导航栈不丢）；
+    // Obx 继续负责深色模式开关，两套机制正交互不干扰。
+    return ValueListenableBuilder<AppUiStyle>(
+      valueListenable: UiStyleScope.notifier,
+      builder: (context, style, _) => UiStyleScope(
+        style: style,
+        child: Obx(() => GetMaterialApp(
+              title: '抱抱情绪云',
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.light(style: style),
+              darkTheme: AppTheme.dark(style: style),
+              themeMode:
+                  controller.isDarkMode.value ? ThemeMode.dark : ThemeMode.light,
+              home: _showSplash
+                  ? AppSplash(
+                      appInit: controller.ready,
+                      isDarkMode: controller.isDarkMode.value,
+                      onFinished: () => setState(() => _showSplash = false),
+                    )
+                  : const MainNavigation(),
+              getPages: AppRoutes.routes,
+            )),
+      ),
+    );
   }
 }
 
@@ -149,13 +162,9 @@ class _MainNavigationState extends State<MainNavigation> {
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
+          border: Border(
+            top: BorderSide(color: AppStroke.inkOf(context), width: 2),
+          ),
         ),
         child: SafeArea(
           child: Padding(
@@ -183,10 +192,9 @@ class _MainNavigationState extends State<MainNavigation> {
             currentIndex: _currentIndex,
             onTabChanged: _onTabChanged,
           ),
-          Container(
-            width: 1,
-            color: AppColors.hazeBlue.withValues(alpha: 0.08),
-          ),
+          // 桌面竖分隔：右侧 2px ink 描边在 DesktopSidebar 容器上，
+          // 这里只留 1px 纯间隔，避免同屏双线
+          const SizedBox(width: 1),
           Expanded(
             child: SafeArea(
               child: IndexedStack(
@@ -210,15 +218,20 @@ class _MainNavigationState extends State<MainNavigation> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
-          color: isActive ? AppColors.hazeBlue.withOpacity(0.1) : Colors.transparent,
+          color: isActive
+              ? AppColors.hazeBlue.withValues(alpha: 0.14)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
+          border: isActive
+              ? Border.all(color: AppStroke.inkOf(context), width: 1.5)
+              : null,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               isActive ? activeIcon : icon,
-              color: isActive ? AppColors.hazeBlue : inactiveColor,
+              color: isActive ? Theme.of(context).colorScheme.onSurface : inactiveColor,
               size: 22,
             ),
             const SizedBox(height: 2),
@@ -226,7 +239,7 @@ class _MainNavigationState extends State<MainNavigation> {
               label,
               style: TextStyle(
                 fontSize: 11,
-                color: isActive ? AppColors.hazeBlue : inactiveColor,
+                color: isActive ? Theme.of(context).colorScheme.onSurface : inactiveColor,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
               ),
             ),

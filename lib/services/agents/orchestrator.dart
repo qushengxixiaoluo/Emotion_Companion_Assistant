@@ -1,7 +1,7 @@
 import 'dart:developer' as developer;
 import '../../models/emotion_models.dart';
+import '../emotion_service.dart';
 import '../memory_service.dart';
-import 'emotion_agent.dart';
 import 'retrieval_agent.dart';
 import 'response_agent.dart';
 
@@ -11,22 +11,38 @@ class AgentOrchestrator {
   factory AgentOrchestrator() => _instance;
   AgentOrchestrator._();
 
-  final EmotionAgent _emotionAgent = EmotionAgent();
   final RetrievalAgent _retrievalAgent = RetrievalAgent();
   final ResponseAgent _responseAgent = ResponseAgent();
   final MemoryService _memoryService = MemoryService();
+  final EmotionService _localEmotion = EmotionService();
+
+  /// 聊天路径的本地情绪分析（毫秒级）。
+  /// 原先此处 await 3 轮**串行 LLM** 深度情绪分析，每条消息在回复开始前
+  /// 多等 2~6 秒，而该结果只影响失败兜底话术的情绪选择（气泡情绪本就走
+  /// 本地分析）。树洞记录的 AI 深度分析是独立链路，不受影响。
+  Map<String, dynamic> _emotionOf(String text) {
+    final r = _localEmotion.analyze(text);
+    return {
+      'sadness': r.sadness,
+      'anxiety': r.anxiety,
+      'anger': r.anger,
+      'loneliness': r.loneliness,
+      'happiness': r.happiness,
+      'calmness': r.calmness,
+      'suppression': r.suppression,
+      'dominantEmotion': r.dominantEmotion,
+      'interpretation': '',
+      'suggestions': <String>[],
+      'source': 'local',
+    };
+  }
 
   Stream<String> processStream(String userMessage) async* {
     developer.log('【Orchestrator】开始处理: $userMessage');
 
     try {
-      final results = await Future.wait([
-        _emotionAgent.analyze(userMessage),
-        _retrievalAgent.retrieve(userMessage),
-      ]);
-
-      final emotionResult = results[0] as Map<String, dynamic>;
-      final retrievedInfo = results[1] as Map<String, String>;
+      final retrievedInfo = await _retrievalAgent.retrieve(userMessage);
+      final emotionResult = _emotionOf(userMessage);
 
       developer.log('【Orchestrator】情绪分析完成: ${emotionResult['dominantEmotion']} (${emotionResult['source']})');
       developer.log('【Orchestrator】信息检索完成: 知识库=${(retrievedInfo['knowledgeContext'] ?? '').length}字, 记忆=${(retrievedInfo['memoryContext'] ?? '').length}字');
@@ -46,13 +62,8 @@ class AgentOrchestrator {
     developer.log('【Orchestrator】开始处理(非流式): $userMessage');
 
     try {
-      final results = await Future.wait([
-        _emotionAgent.analyze(userMessage),
-        _retrievalAgent.retrieve(userMessage),
-      ]);
-
-      final emotionResult = results[0] as Map<String, dynamic>;
-      final retrievedInfo = results[1] as Map<String, String>;
+      final retrievedInfo = await _retrievalAgent.retrieve(userMessage);
+      final emotionResult = _emotionOf(userMessage);
 
       return await _responseAgent.generate(
         userMessage: userMessage,

@@ -5,7 +5,6 @@ import 'package:flutter/rendering.dart';
 import 'package:get/get.dart';
 import 'package:hive_ce_flutter/hive_ce_flutter.dart';
 import 'app/themes/app_theme.dart';
-import 'app/themes/app_colors.dart';
 import 'app/routes/app_routes.dart';
 import 'app/app_controller.dart';
 import 'app/responsive/responsive_utils.dart';
@@ -183,10 +182,9 @@ class _ScreenshotAppState extends State<ScreenshotApp> {
               currentIndex: _tabIndex,
               onTabChanged: (i) => setState(() => _tabIndex = i),
             ),
-            Container(
-              width: 1,
-              color: AppColors.hazeBlue.withValues(alpha: 0.08),
-            ),
+            // 与 main.dart 桌面布局保持一致：sidebar 容器右侧 2px ink，
+            // 这里只留 1px 纯间隔，避免同屏双线
+            const SizedBox(width: 1),
             Expanded(
               child: SafeArea(
                 child: IndexedStack(

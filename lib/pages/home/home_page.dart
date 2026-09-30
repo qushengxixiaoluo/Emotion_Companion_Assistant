@@ -2,14 +2,16 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../app/themes/app_colors.dart';
+import '../../app/styles/app_styles.dart';
+import '../../app/styles/ui_style.dart';
 import '../../app/responsive/adaptive_content_wrapper.dart';
 import '../../services/storage_service.dart';
 import '../../models/emotion_models.dart';
 import '../../app/routes/app_routes.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/lowpoly_background.dart';
 import '../../widgets/emotion_radar.dart';
 import '../../widgets/heartbeat_breath_button.dart';
-import '../../widgets/fortune_draw.dart';
-import '../../widgets/fortune_calendar.dart';
 import '../../widgets/emotion_archive_dialog.dart';
 
 class HomePage extends StatefulWidget {
@@ -24,17 +26,12 @@ class HomePageState extends State<HomePage> {
   final StorageService _storageService = StorageService();
   List<EmotionRecord> _records = [];
   String _greeting = '';
-  String? _fortuneDate;
-  FortuneLevel? _fortuneLevel;
-  String? _fortuneBlessing;
-  List<String> _checkedDates = [];
 
   @override
   void initState() {
     super.initState();
     _loadData();
     _setGreeting();
-    _loadFortuneState();
   }
 
   void _setGreeting() {
@@ -54,45 +51,6 @@ class HomePageState extends State<HomePage> {
     } else {
       _greeting = '夜深了，把烦恼留给明天';
     }
-  }
-
-  Future<void> _loadFortuneState() async {
-    final dates = await _storageService.getFortuneCheckinDates();
-    final date = await _storageService.getFortuneDate();
-    final today = '${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}';
-    FortuneLevel? savedLevel;
-    String? savedBlessing;
-    if (date == today) {
-      final levelIdx = await _storageService.getFortuneLevel();
-      final blessing = await _storageService.getFortuneBlessing();
-      if (levelIdx != null && levelIdx >= 0 && levelIdx < FortuneLevel.values.length && blessing != null) {
-        savedLevel = FortuneLevel.values[levelIdx];
-        savedBlessing = blessing;
-      }
-    }
-    if (mounted) {
-      setState(() {
-        _checkedDates = dates;
-        _fortuneDate = date == today ? date : null;
-        _fortuneLevel = savedLevel;
-        _fortuneBlessing = savedBlessing;
-      });
-    }
-  }
-
-  Future<void> _saveFortune(
-      String date, FortuneLevel level, String blessing) async {
-    await _storageService.setFortuneDate(date);
-    await _storageService.setFortuneLevel(level.index);
-    await _storageService.setFortuneBlessing(blessing);
-    await _storageService.addFortuneCheckinDate(date);
-    final dates = await _storageService.getFortuneCheckinDates();
-    setState(() {
-      _fortuneDate = date;
-      _fortuneLevel = level;
-      _fortuneBlessing = blessing;
-      _checkedDates = dates;
-    });
   }
 
   Future<void> _loadData() async {
@@ -218,9 +176,9 @@ class HomePageState extends State<HomePage> {
       height: containerSize,
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.smB,
       ),
-      child: Icon(icon, size: size, color: color),
+      child: Icon(icon, size: size, color: Theme.of(context).colorScheme.onSurface),
     );
   }
 
@@ -228,50 +186,28 @@ class HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final todayAggregated = _getTodayAggregated();
     final todayCount = _getTodayCount();
     final now = DateTime.now();
 
-    final gradientColors = isDark
-        ? [AppColors.hazeBlue.withValues(alpha: 0.12), AppColors.darkBackground]
-        : [AppColors.hazeBlue.withValues(alpha: 0.05), AppColors.background];
-
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: gradientColors,
-          ),
+      // 顶栏与「安慰」「我的」统一：Scaffold 标准 AppBar（主题透明底、标题居中）
+      appBar: AppBar(
+        title: Text(
+          '情绪陪伴',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
         ),
+        surfaceTintColor: Colors.transparent,
+      ),
+      body: LowPolyBackground(
         child: SafeArea(
+          top: false, // 顶部由 AppBar 承担，避免状态栏双重留白
           child: AdaptiveContentWrapper(
             child: CustomScrollView(
               slivers: [
-                // ===== SliverAppBar =====
-              SliverAppBar(
-                pinned: true,
-                title: Text(
-                  '情绪陪伴',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.hazeBlue,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                centerTitle: false,
-                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                surfaceTintColor: Colors.transparent,
-                elevation: 0,
-                actions: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 16),
-                    child: _buildFortuneCircle(),
-                  ),
-                ],
-              ),
-
               // ===== All Content =====
               SliverToBoxAdapter(
                 child: Padding(
@@ -320,25 +256,10 @@ class HomePageState extends State<HomePage> {
   // ============= Greeting Header =============
 
   Widget _buildGreetingHeader(DateTime now) {
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.hazeBlue.withValues(alpha: 0.08),
-            AppColors.hazeBlue.withValues(alpha: 0.02),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.hazeBlue.withValues(alpha: 0.1),
-          width: 1,
-        ),
-      ),
-      child: Column(
+      child: AppCard(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -351,7 +272,7 @@ class HomePageState extends State<HomePage> {
                     Text(
                       _greeting,
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: AppColors.hazeBlue,
+                            color: Theme.of(context).colorScheme.onSurface,
                             fontWeight: FontWeight.w700,
                             height: 1.3,
                           ),
@@ -360,7 +281,7 @@ class HomePageState extends State<HomePage> {
                     Text(
                       '我是你的情绪陪伴师',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.textSecondary,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                     ),
                   ],
@@ -371,12 +292,12 @@ class HomePageState extends State<HomePage> {
                 height: 44,
                 decoration: BoxDecoration(
                   color: AppColors.hazeBlue.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: AppRadius.mdB,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.cloud_outlined,
                   size: 22,
-                  color: AppColors.hazeBlue,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ],
@@ -386,7 +307,7 @@ class HomePageState extends State<HomePage> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: AppColors.hazeBlue.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: AppRadius.smB,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -394,14 +315,14 @@ class HomePageState extends State<HomePage> {
                 Icon(
                   Icons.calendar_today_rounded,
                   size: 12,
-                  color: AppColors.hazeBlue.withValues(alpha: 0.6),
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
                 const SizedBox(width: 6),
                 Text(
                   _formatDate(now),
                   style: TextStyle(
                     fontSize: 12,
-                    color: AppColors.hazeBlue.withValues(alpha: 0.7),
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -409,6 +330,7 @@ class HomePageState extends State<HomePage> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -420,19 +342,23 @@ class HomePageState extends State<HomePage> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
       decoration: BoxDecoration(
-        color: AppColors.hazeBlue.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.hazeBlue.withValues(alpha: 0.08),
-          width: 1,
+        // 不透明淡染（按明暗取底色）：浅色防网格透出显灰，深色防浅底压白字
+        color: Color.lerp(
+          Theme.of(context).brightness == Brightness.dark
+              ? AppColors.darkBackground
+              : AppColors.background,
+          AppColors.hazeBlue,
+          0.05,
         ),
+        borderRadius: AppRadius.cardB,
+        border: AppStroke.all(context),
       ),
       child: Column(
         children: [
           Text(
             '轻轻点击，开始倾诉...',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.textHint,
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontStyle: FontStyle.italic,
                 ),
           ),
@@ -445,117 +371,10 @@ class HomePageState extends State<HomePage> {
           Text(
             '你的每一次倾诉，都会被温柔聆听',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.textHint,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ============= Fortune Section =============
-
-  Widget _buildFortuneCircle() {
-    return GestureDetector(
-      onTap: () => _showFortuneDialog(),
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          image: DecorationImage(
-            image: AssetImage('assets/icons/icon.png'),
-            fit: BoxFit.cover,
-          ),
-          border: Border.all(
-            color: AppColors.warmBeige.withValues(alpha: 0.25),
-            width: 1,
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showFortuneDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              width: 5,
-              height: 20,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(3),
-                color: AppColors.warmBeige.withValues(alpha: 0.8),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text('今日一签',
-                style: TextStyle(
-                    fontSize: 16,
-                    color: Theme.of(ctx).colorScheme.onSurface)),
-          ],
-        ),
-        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-        contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FortuneDraw(
-              savedDate: _fortuneDate,
-              savedLevel: _fortuneLevel,
-              savedBlessing: _fortuneBlessing,
-              onFortuneDrawn: _saveFortune,
-            ),
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _showCalendarDialog();
-              },
-              child: Text('查看日历签到 →',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.hazeBlue.withValues(alpha: 0.7),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showCalendarDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).colorScheme.surface,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            GestureDetector(
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _showFortuneDialog();
-              },
-              child: Icon(Icons.arrow_back_ios, size: 16,
-                color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.6)),
-            ),
-            const SizedBox(width: 8),
-            Text('签到日历',
-              style: TextStyle(fontSize: 16, color: Theme.of(ctx).colorScheme.onSurface)),
-          ],
-        ),
-        titlePadding: const EdgeInsets.fromLTRB(16, 20, 20, 0),
-        contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        content: FortuneCalendar(checkedDates: _checkedDates),
       ),
     );
   }
@@ -563,26 +382,10 @@ class HomePageState extends State<HomePage> {
   // ============= Today's Emotion Card =============
 
   Widget _buildTodayEmotionCard(EmotionRecord? todayAggregated, int todayCount) {
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.hazeBlue.withValues(alpha: 0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
+      child: AppCard(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
@@ -600,13 +403,13 @@ class HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 decoration: BoxDecoration(
                   color: AppColors.hazeBlue.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: AppRadius.smB,
                 ),
                 child: Text(
                   '查看详情 →',
                   style: TextStyle(
                     fontSize: 12,
-                    color: AppColors.hazeBlue,
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -618,7 +421,7 @@ class HomePageState extends State<HomePage> {
             const SizedBox(height: 8),
             _buildEmptyState(
               icon: Icons.sentiment_neutral_outlined,
-              iconColor: AppColors.hazeBlue,
+              iconColor: Theme.of(context).colorScheme.onSurface,
               title: '还没有情绪记录',
               subtitle: '开始倾诉，让情绪被温柔看见',
             ),
@@ -637,7 +440,7 @@ class HomePageState extends State<HomePage> {
                   child: Text(
                     '今日 $todayCount 条 · 共 ${_records.length} 条',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.textSecondary,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                   ),
                 ),
@@ -653,6 +456,7 @@ class HomePageState extends State<HomePage> {
             ),
           ],
         ],
+        ),
       ),
     );
   }
@@ -673,26 +477,11 @@ class HomePageState extends State<HomePage> {
   // ============= Emotion Timeline Card =============
 
   Widget _buildTimelineCard() {
-    return Container(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.hazeBlue.withValues(alpha: 0.12),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
+      child: AppCard(
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
@@ -704,14 +493,14 @@ class HomePageState extends State<HomePage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.calendar_month_outlined,
-                      size: 14, color: AppColors.hazeBlue.withValues(alpha: 0.8)),
+                      size: 14, color: Theme.of(context).colorScheme.onSurface),
                   const SizedBox(width: 4),
                   Text(
                     '归档',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.hazeBlue.withValues(alpha: 0.9),
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ],
@@ -722,13 +511,14 @@ class HomePageState extends State<HomePage> {
           if (_records.isEmpty)
             _buildEmptyState(
               icon: Icons.show_chart_rounded,
-              iconColor: AppColors.hazeBlue,
+              iconColor: Theme.of(context).colorScheme.onSurface,
               title: '还没有情绪记录',
               subtitle: '开始倾诉，记录你的情绪旅程',
             )
           else
-            _buildEmotionTimeline(),
+            _buildEmotionTimeline(isDark),
         ],
+        ),
       ),
     );
   }
@@ -750,7 +540,7 @@ class HomePageState extends State<HomePage> {
               child: _buildQuickAction(
                 icon: Icons.auto_awesome,
                 label: 'AI暖心安慰',
-                color: AppColors.softPink,
+                color: Theme.of(context).colorScheme.onSurface,
                 onTap: () {
                   if (widget.onNavigateToComfort != null) {
                     widget.onNavigateToComfort!();
@@ -765,7 +555,7 @@ class HomePageState extends State<HomePage> {
               child: _buildQuickAction(
                 icon: Icons.analytics_outlined,
                 label: '情绪分析',
-                color: AppColors.lightCyan,
+                color: Theme.of(context).colorScheme.onSurface,
                 onTap: () => Get.toNamed(AppRoutes.analysis),
               ),
             ),
@@ -778,7 +568,7 @@ class HomePageState extends State<HomePage> {
               child: _buildQuickAction(
                 icon: Icons.shield_outlined,
                 label: '隐私中心',
-                color: AppColors.gentlePurple,
+                color: Theme.of(context).colorScheme.onSurface,
                 onTap: () => Get.toNamed(AppRoutes.privacy),
               ),
             ),
@@ -787,7 +577,7 @@ class HomePageState extends State<HomePage> {
               child: _buildQuickAction(
                 icon: Icons.nightlight_round,
                 label: 'AI梦境解读',
-                color: AppColors.dreamyLavender,
+                color: Theme.of(context).colorScheme.onSurface,
                 onTap: () => Get.toNamed(AppRoutes.dream),
               ),
             ),
@@ -810,7 +600,7 @@ class HomePageState extends State<HomePage> {
       padding: const EdgeInsets.symmetric(vertical: 28),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.mdB,
       ),
       child: Column(
         children: [
@@ -825,7 +615,7 @@ class HomePageState extends State<HomePage> {
             subtitle,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   fontSize: 12,
-                  color: AppColors.textHint,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
         ],
@@ -849,12 +639,12 @@ class HomePageState extends State<HomePage> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.cardB,
       ),
       child: Text(
         emotion,
         style: TextStyle(
-          color: color,
+          color: Theme.of(context).colorScheme.onSurface,
           fontWeight: FontWeight.w600,
           fontSize: 14,
         ),
@@ -862,29 +652,58 @@ class HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildEmotionTimeline() {
-    // 过滤掉"分析中..."占位记录，与 analysis 页保持一致
-    final recent = _records
-        .where((r) => r.dominantEmotion != '分析中...')
-        .take(7)
-        .toList()
-        .reversed
-        .toList();
-    if (recent.isEmpty) return const SizedBox.shrink();
+  /// 每页展示的记录条数（翻页阈值与页容量共用）
+  static const _timelinePageSize = 8;
 
+  Widget _buildEmotionTimeline(bool isDark) {
+    // 过滤掉"分析中..."占位记录，与 analysis 页保持一致
+    final filtered = _records
+        .where((r) => r.dominantEmotion != '分析中...')
+        .toList();
+    if (filtered.isEmpty) return const SizedBox.shrink();
+
+    // ≤ 8 条：保持现状单图显示（不翻页、不显示指示器）
+    if (filtered.length <= _timelinePageSize) {
+      return _buildTimelineChart(filtered.reversed.toList(), isDark);
+    }
+
+    // > 8 条：分页。_records 是时间倒序（最新在前），所以按 8 条切块得到
+    // [最新页, ..., 最早页]，再反转成时间正序的页序列（最旧页在第 0 页）。
+    // PageView 的 initialPage = 最后一页 = 最新 8 条；向右滑（上一页）即回到更早的页。
+    final chunks = <List<EmotionRecord>>[];
+    for (var i = 0; i < filtered.length; i += _timelinePageSize) {
+      final end = math.min(i + _timelinePageSize, filtered.length);
+      chunks.add(filtered.sublist(i, end));
+    }
+    final pages = chunks.reversed.toList();
+
+    return _PagedEmotionTimeline(
+      // 页数变化时重建 State，让 PageController 的 initialPage 重新对准最新页
+      key: ValueKey('home_timeline_pages_${pages.length}'),
+      pages: pages,
+      isDark: isDark,
+      emotionColorFn: _emotionColor,
+      formatDate: _formatTimelineDate,
+    );
+  }
+
+  /// 单图时间轴（≤8 条时使用）：records 为时间正序（最新在右）
+  Widget _buildTimelineChart(List<EmotionRecord> records, bool isDark) {
     return SizedBox(
       height: 120,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final totalW = constraints.maxWidth;
-          final colW = recent.length > 0 ? totalW / recent.length : totalW;
+          final colW = records.isNotEmpty ? totalW / records.length : totalW;
           return CustomPaint(
             size: Size(totalW, 120),
             painter: _EmotionTimelinePainter(
-              records: recent,
+              records: records,
               emotionColorFn: _emotionColor,
               colWidth: colW,
               formatDate: _formatTimelineDate,
+              isDark: isDark,
+              style: UiStyleScope.of(context),
             ),
           );
         },
@@ -901,26 +720,14 @@ class HomePageState extends State<HomePage> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            // 底层：彩色柔光投影，营造"浮起"感
-            BoxShadow(
-              color: color.withValues(alpha: 0.18),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-            // 中层：中性灰投影，增加厚度
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
+          borderRadius: AppRadius.cardB,
+          boxShadow: AppShadow.hard(context, dy: 4, alpha: 0.22),
         ),
-        child: Column(
+        child: AppCard(
+          hardShadow: false,
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+          child: Column(
           children: [
             // 图标容器 — 彩色半透明底
             Container(
@@ -928,9 +735,9 @@ class HomePageState extends State<HomePage> {
               height: 48,
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: AppRadius.mdB,
               ),
-              child: Icon(icon, color: color, size: 24),
+              child: Icon(icon, color: Theme.of(context).colorScheme.onSurface, size: 24),
             ),
             const SizedBox(height: 10),
             // 标签 — 用主文字色，确保可读性
@@ -944,8 +751,134 @@ class HomePageState extends State<HomePage> {
               textAlign: TextAlign.center,
             ),
           ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// 「近期情绪波动」分页容器。
+///
+/// [pages] 按时间正序排列（第 0 页最旧、最后一页最新），页内记录保持
+/// 时间倒序（最新在前），绘制时 reversed 使每页最旧在左、最新在右。
+/// initialPage 指向最后一页 → 默认展示最新记录；向右滑（上一页）看更早记录。
+class _PagedEmotionTimeline extends StatefulWidget {
+  final List<List<EmotionRecord>> pages;
+  final bool isDark;
+  final Color Function(String) emotionColorFn;
+  final String Function(DateTime) formatDate;
+
+  const _PagedEmotionTimeline({
+    super.key,
+    required this.pages,
+    required this.isDark,
+    required this.emotionColorFn,
+    required this.formatDate,
+  });
+
+  @override
+  State<_PagedEmotionTimeline> createState() => _PagedEmotionTimelineState();
+}
+
+class _PagedEmotionTimelineState extends State<_PagedEmotionTimeline> {
+  late final PageController _controller;
+  late int _current;
+
+  @override
+  void initState() {
+    super.initState();
+    _current = widget.pages.length - 1; // 默认停在最新页
+    _controller = PageController(initialPage: _current);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pageCount = widget.pages.length;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 120,
+          child: PageView.builder(
+            controller: _controller,
+            itemCount: pageCount,
+            onPageChanged: (i) => setState(() => _current = i),
+            itemBuilder: (context, index) {
+              // 页内 reversed：与单图一致，最旧在左、最新在右
+              final pageRecords = widget.pages[index].reversed.toList();
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final totalW = constraints.maxWidth;
+                  return CustomPaint(
+                    size: Size(totalW, 120),
+                    painter: _EmotionTimelinePainter(
+                      records: pageRecords,
+                      emotionColorFn: widget.emotionColorFn,
+                      colWidth: totalW / pageRecords.length,
+                      formatDate: widget.formatDate,
+                      isDark: widget.isDark,
+                      style: UiStyleScope.of(context),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '左右滑动查看更多',
+          style: TextStyle(
+            fontSize: 10.5,
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.55),
+          ),
+        ),
+        const SizedBox(height: 6),
+        _buildDots(),
+      ],
+    );
+  }
+
+  /// 翻页指示器：active 实心、inactive 同色 alpha 0.25；
+  /// 页数过多时只显示当前页附近的点，保证单行不溢出。
+  Widget _buildDots() {
+    const maxVisible = 9;
+    const dotSize = 6.0;
+    const gap = 5.0;
+    final count = widget.pages.length;
+    var start = 0;
+    if (count > maxVisible) {
+      start = (_current - 3).clamp(0, count - maxVisible);
+    }
+    final end = math.min(count, start + maxVisible);
+    final ink = AppStroke.ink(isDark: widget.isDark, style: UiStyleScope.of(context));
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = start; i < end; i++)
+          Padding(
+            padding: EdgeInsets.only(right: i == end - 1 ? 0 : gap),
+            child: Container(
+              width: dotSize,
+              height: dotSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: i == _current ? ink : ink.withValues(alpha: 0.25),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -955,12 +888,16 @@ class _EmotionTimelinePainter extends CustomPainter {
   final Color Function(String) emotionColorFn;
   final double colWidth;
   final String Function(DateTime) formatDate;
+  final bool isDark;
+  final AppUiStyle style;
 
   _EmotionTimelinePainter({
     required this.records,
     required this.emotionColorFn,
     required this.colWidth,
     required this.formatDate,
+    this.isDark = false,
+    this.style = AppUiStyle.lowPoly,
   });
 
   static const _barW = 14.0;
@@ -969,10 +906,32 @@ class _EmotionTimelinePainter extends CustomPainter {
   static const _labelFontSize = 9.0;
   static const _dateFontSize = 10.0;
 
+  bool get _watercolor => style == AppUiStyle.watercolor;
+
+  /// 水彩：线宽收细 0.3 + 圆头圆角；lowPoly 原值原样
+  double _sw(double w) => _watercolor && w > 0.7 ? w - 0.3 : w;
+
+  /// 语义色填充水彩下 alpha ×0.75（清透）
+  double _fillA(double a) => _watercolor ? a * 0.75 : a;
+
+  Paint _stroke(double width, Color color) {
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _sw(width);
+    if (_watercolor) {
+      p
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+    }
+    return p;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (records.isEmpty) return;
 
+    final ink = AppStroke.ink(isDark: isDark, style: style);
     final n = records.length;
     final barBottomY = size.height - 18; // date(~12) + gap(6)
 
@@ -989,31 +948,28 @@ class _EmotionTimelinePainter extends CustomPainter {
       final labelTP = TextPainter(
         text: TextSpan(
           text: r.dominantEmotion,
-          style: TextStyle(fontSize: _labelFontSize, color: color, fontWeight: FontWeight.w600),
+          style: TextStyle(fontSize: _labelFontSize, color: ink, fontWeight: FontWeight.w600),
         ),
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: colWidth);
       labelTP.paint(canvas, Offset(colCenterX - labelTP.width / 2, barTopY - _labelGap - labelTP.height));
 
-      // Bar background (rounded rect top)
+      // Bar body (实色填充) + 描边（lowpoly 硬朗风 / 水彩清透手绘）
       final barRect = RRect.fromLTRBR(
         colCenterX - _barW / 2, barTopY,
         colCenterX + _barW / 2, barBottomY,
-        const Radius.circular(7),
+        const Radius.circular(4),
       );
       final barPaint = Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [color.withValues(alpha: 0.7), color.withValues(alpha: 0.25)],
-        ).createShader(Rect.fromLTRB(0, barTopY, 0, barBottomY));
+        ..color = color.withValues(alpha: _fillA(0.55));
       canvas.drawRRect(barRect, barPaint);
+      canvas.drawRRect(barRect, _stroke(2, ink));
 
       // Date label
       final dateTP = TextPainter(
         text: TextSpan(
           text: formatDate(r.createdAt),
-          style: const TextStyle(fontSize: _dateFontSize, color: AppColors.textSecondary),
+          style: TextStyle(fontSize: _dateFontSize, color: ink),
         ),
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: colWidth);
@@ -1034,8 +990,8 @@ class _EmotionTimelinePainter extends CustomPainter {
     const dashLen = 5.0;
     const gapLen = 4.0;
     for (int i = 0; i < n - 1; i++) {
-      final color = emotionColorFn(records[i].dominantEmotion);
-      _drawDashedLine(canvas, points[i], points[i + 1], color, dashLen, gapLen);
+      _drawDashedLine(
+        canvas, points[i], points[i + 1], ink.withValues(alpha: 0.6), dashLen, gapLen);
     }
 
     // Arrowhead
@@ -1049,6 +1005,7 @@ class _EmotionTimelinePainter extends CustomPainter {
     final ndy = dy / dist;
     final arrowPaint = Paint()
       ..color = emotionColorFn(records.last.dominantEmotion)
+          .withValues(alpha: _fillA(1.0))
       ..style = PaintingStyle.fill;
     final path = Path()
       ..moveTo(last.dx, last.dy)
@@ -1056,13 +1013,14 @@ class _EmotionTimelinePainter extends CustomPainter {
       ..lineTo(last.dx - ndx * 10 - ndy * 4, last.dy - ndy * 10 + ndx * 4)
       ..close();
     canvas.drawPath(path, arrowPaint);
+    canvas.drawPath(path, _stroke(1.5, ink));
   }
 
   void _drawDashedLine(Canvas canvas, Offset from, Offset to, Color color,
       double dashLen, double gapLen) {
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 2.5
+      ..strokeWidth = _sw(2)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
     final dx = to.dx - from.dx;
@@ -1092,6 +1050,9 @@ class _EmotionTimelinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _EmotionTimelinePainter old) =>
-      old.records != records || old.colWidth != colWidth;
+      old.records != records ||
+      old.colWidth != colWidth ||
+      old.isDark != isDark ||
+      old.style != style;
 }
 

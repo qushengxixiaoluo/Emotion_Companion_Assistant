@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../styles/app_styles.dart';
 import '../themes/app_colors.dart';
 
 class DesktopSidebar extends StatefulWidget {
@@ -31,7 +32,12 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
 
     return Container(
       width: _width,
-      color: Theme.of(context).colorScheme.surface,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          right: BorderSide(color: AppStroke.inkOf(context), width: 2),
+        ),
+      ),
       child: Column(
         children: [
           const SizedBox(height: 24),
@@ -74,7 +80,7 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
             '抱抱情绪云',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: AppColors.hazeBlue,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
         ],
@@ -100,14 +106,19 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: isActive ? AppColors.hazeBlue.withValues(alpha: 0.1) : Colors.transparent,
+            color: isActive
+                ? AppColors.hazeBlue.withValues(alpha: 0.14)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
+            border: isActive
+                ? Border.all(color: AppStroke.inkOf(context), width: 1.5)
+                : null,
           ),
           child: Row(
             children: [
               Icon(
                 isActive ? activeIcon : icon,
-                color: isActive ? AppColors.hazeBlue : inactiveColor,
+                color: isActive ? Theme.of(context).colorScheme.onSurface : inactiveColor,
                 size: 22,
               ),
               const SizedBox(width: 14),
@@ -115,7 +126,7 @@ class _DesktopSidebarState extends State<DesktopSidebar> {
                 label,
                 style: TextStyle(
                   fontSize: 14,
-                  color: isActive ? AppColors.hazeBlue : inactiveColor,
+                  color: isActive ? Theme.of(context).colorScheme.onSurface : inactiveColor,
                   fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),

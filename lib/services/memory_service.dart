@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import '../models/emotion_models.dart';
 import 'storage_service.dart';
 import 'llm_service.dart';
+import 'llm_api_adapter.dart';
 
 class MemoryService {
   static final MemoryService _instance = MemoryService._();
@@ -114,19 +115,29 @@ class MemoryService {
     return contextParts.isEmpty ? '' : contextParts.join('\n\n');
   }
 
+  /// 单次 LLM 调用：复用 LlmApiAdapter 的双格式转换
+  /// （OpenAI 兼容 /chat/completions ↔ Anthropic 原生 /v1/messages）
   Future<String?> _callLlm({required String systemPrompt, required String userContent, int maxTokens = 256, double temperature = 0.3}) async {
     if (!_llm.isConfigured()) return null;
     try {
-      final uri = Uri.parse('${_llm.baseUrl}/chat/completions');
-      final response = await http.post(uri,
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ${_llm.apiKey}'},
-        body: jsonEncode({'model': _llm.model, 'messages': [
-          {'role': 'system', 'content': systemPrompt}, {'role': 'user', 'content': userContent},
-        ], 'max_tokens': maxTokens, 'temperature': temperature}),
+      final apiFormat = _llm.apiFormat;
+      final response = await http.post(
+        Uri.parse(LlmApiAdapter.chatUrl(_llm.baseUrl, apiFormat)),
+        headers: LlmApiAdapter.headers(_llm.apiKey, apiFormat),
+        body: jsonEncode(LlmApiAdapter.buildBody(
+          model: _llm.model,
+          messages: [
+            {'role': 'system', 'content': systemPrompt},
+            {'role': 'user', 'content': userContent},
+          ],
+          maxTokens: maxTokens,
+          temperature: temperature,
+          apiFormat: apiFormat,
+        )),
       ).timeout(const Duration(seconds: 60));
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return (data['choices']?[0]?['message']?['content'] as String?)?.trim();
+        final message = LlmApiAdapter.parseMessage(response.body, apiFormat);
+        return (message?['content'] as String?)?.trim();
       }
       return null;
     } catch (e) { return null; }

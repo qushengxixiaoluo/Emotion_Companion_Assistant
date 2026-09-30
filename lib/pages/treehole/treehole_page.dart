@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../app/themes/app_colors.dart';
+import '../../app/styles/app_styles.dart';
 import '../../app/responsive/adaptive_content_wrapper.dart';
 import '../../services/emotion_service.dart';
 import '../../services/llm_service.dart';
@@ -9,6 +10,8 @@ import '../../services/storage_service.dart';
 import '../../services/white_noise_service.dart';
 import '../../models/emotion_models.dart';
 import '../../app/routes/app_routes.dart';
+import '../../widgets/fly_to_trash.dart';
+import '../../widgets/lowpoly_background.dart';
 import '../../widgets/unified_config_dialog.dart';
 
 class TreeholePage extends StatefulWidget {
@@ -19,6 +22,14 @@ class TreeholePage extends StatefulWidget {
 }
 
 class TreeholePageState extends State<TreeholePage> {
+  /// 日记卡片 GlobalKey（删除动画取起点矩形用），按记录 id 缓存保证跨帧稳定
+  final Map<String, GlobalKey> _recordKeys = {};
+  /// 正在播放删除动画的记录：动画期间卡片透明占位，由纸飞机接力
+  String? _flyingId;
+
+  GlobalKey _recordKey(String id) =>
+      _recordKeys.putIfAbsent(id, () => GlobalKey(debugLabel: 'diary_$id'));
+
   final TextEditingController _textController = TextEditingController();
   final EmotionService _emotionService = EmotionService();
   final StorageService _storageService = StorageService();
@@ -154,7 +165,6 @@ class TreeholePageState extends State<TreeholePage> {
             barrierDismissible: false,
             builder: (ctx) {
               return AlertDialog(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 title: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -165,7 +175,7 @@ class TreeholePageState extends State<TreeholePage> {
                         dialogOpen = false;
                         Navigator.of(ctx).pop();
                       },
-                      child: Icon(Icons.close, size: 20, color: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.3)),
+                      child: Icon(Icons.close, size: 20, color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.3)),
                     ),
                   ],
                 ),
@@ -243,13 +253,11 @@ class TreeholePageState extends State<TreeholePage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Text('已使用本地分析，配置大模型 API 可获得 AI 深度分析'),
-              backgroundColor: AppColors.hazeBlue,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               duration: const Duration(seconds: 3),
               action: SnackBarAction(
                 label: '去配置',
-                textColor: Colors.white,
+                textColor: Theme.of(context).colorScheme.onSurface,
                 onPressed: () {
                   showUnifiedConfigDialog(context).then((_) => _loadRecords());
                 },
@@ -280,8 +288,6 @@ class TreeholePageState extends State<TreeholePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(fallbackSaved ? 'AI 分析失败，已改用本地分析' : 'AI 分析失败，请稍后重试'),
-            backgroundColor: AppColors.softPink,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             duration: const Duration(seconds: 3),
           ),
         );
@@ -325,25 +331,31 @@ class TreeholePageState extends State<TreeholePage> {
       return _buildLockedView();
     }
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientColors = isDark
-        ? [AppColors.hazeBlue.withOpacity(0.12), AppColors.darkBackground]
-        : [AppColors.hazeBlue.withOpacity(0.05), AppColors.background];
-
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: gradientColors,
-          ),
+      // 顶栏与「安慰」「我的」统一：Scaffold 标准 AppBar（主题透明底、标题居中）
+      appBar: AppBar(
+        title: Text(
+          '情绪树洞',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
         ),
+        surfaceTintColor: Colors.transparent,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.lock_outline, size: 20),
+            onPressed: _lockTreehole,
+            tooltip: '锁定树洞',
+          ),
+        ],
+      ),
+      body: LowPolyBackground(
         child: SafeArea(
+          top: false, // 顶部由 AppBar 承担，避免状态栏双重留白
           child: AdaptiveContentWrapper(
             child: CustomScrollView(
             slivers: [
-              _buildSliverHeader(),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -372,35 +384,11 @@ class TreeholePageState extends State<TreeholePage> {
 
   // ============ UI SECTIONS ============
 
-  Widget _buildSliverHeader() {
-    return SliverAppBar(
-      pinned: true,
-      title: Text(
-        '情绪树洞',
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: AppColors.hazeBlue,
-              fontWeight: FontWeight.w600,
-            ),
-      ),
-      centerTitle: false,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.lock_outline, size: 20),
-          onPressed: _lockTreehole,
-          tooltip: '锁定树洞',
-        ),
-      ],
-    );
-  }
-
   Widget _buildPrivacyBanner() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.hazeBlue.withOpacity(0.06),
+        color: AppColors.hazeBlue.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(14),
         border: const Border(
           left: BorderSide(color: AppColors.hazeBlue, width: 3),
@@ -412,17 +400,17 @@ class TreeholePageState extends State<TreeholePage> {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: AppColors.hazeBlue.withOpacity(0.1),
+              color: AppColors.hazeBlue.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.shield_outlined, size: 16, color: AppColors.hazeBlue),
+            child: Icon(Icons.shield_outlined, size: 16, color: Theme.of(context).colorScheme.onSurface),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               '这里是你的私密空间，所有内容仅你可见，全程加密保护',
               style: TextStyle(
-                color: AppColors.hazeBlue,
+                color: Theme.of(context).colorScheme.onSurface,
                 fontSize: 12,
                 height: 1.4,
               ),
@@ -436,11 +424,11 @@ class TreeholePageState extends State<TreeholePage> {
   Widget _buildInputArea() {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.hazeBlue.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(20),
+        color: AppColors.hazeBlue.withValues(alpha: 0.05),
+        borderRadius: AppRadius.cardB,
         border: Border.all(
-          color: AppColors.hazeBlue.withOpacity(0.12),
-          width: 1,
+          color: AppStroke.inkOf(context),
+          width: AppStroke.standard,
         ),
       ),
       padding: const EdgeInsets.all(16),
@@ -449,12 +437,12 @@ class TreeholePageState extends State<TreeholePage> {
         children: [
           Row(
             children: [
-              const Icon(Icons.park_outlined, size: 20, color: AppColors.hazeBlue),
+              Icon(Icons.park_outlined, size: 20, color: Theme.of(context).colorScheme.onSurface),
               const SizedBox(width: 8),
               Text(
                 '把心事写在这里',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: AppColors.hazeBlue,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
               ),
             ],
@@ -468,20 +456,21 @@ class TreeholePageState extends State<TreeholePage> {
             decoration: InputDecoration(
               hintText: '把心事写在这里吧，我静静听着……',
               hintStyle: Theme.of(context).textTheme.bodySmall,
+              // 外层容器已带 2px ink 描边，内部保持无边框（防止主题边框叠加双线）
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.hazeBlue.withOpacity(0.2)),
+                borderRadius: AppRadius.smB,
+                borderSide: BorderSide.none,
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.hazeBlue.withOpacity(0.12)),
+                borderRadius: AppRadius.smB,
+                borderSide: BorderSide.none,
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: AppColors.hazeBlue, width: 1.5),
+                borderRadius: AppRadius.smB,
+                borderSide: BorderSide.none,
               ),
               filled: true,
-              fillColor: Theme.of(context).cardColor.withOpacity(0.6),
+              fillColor: Theme.of(context).cardColor.withValues(alpha: 0.6),
               contentPadding: const EdgeInsets.all(14),
             ),
           ),
@@ -496,9 +485,6 @@ class TreeholePageState extends State<TreeholePage> {
                 backgroundColor: AppColors.hazeBlue,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
               ),
             ),
           ),
@@ -514,7 +500,7 @@ class TreeholePageState extends State<TreeholePage> {
           width: 3,
           height: 16,
           decoration: BoxDecoration(
-            color: AppColors.hazeBlue.withOpacity(0.4),
+            color: AppColors.hazeBlue.withValues(alpha: 0.4),
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -522,7 +508,7 @@ class TreeholePageState extends State<TreeholePage> {
         Text(
           '白噪音',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.hazeBlue,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
         ),
         const SizedBox(width: 12),
@@ -557,7 +543,7 @@ class TreeholePageState extends State<TreeholePage> {
           width: 3,
           height: 16,
           decoration: BoxDecoration(
-            color: AppColors.hazeBlue.withOpacity(0.4),
+            color: AppColors.hazeBlue.withValues(alpha: 0.4),
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -571,7 +557,7 @@ class TreeholePageState extends State<TreeholePage> {
           '${_records.length}',
           style: TextStyle(
             fontSize: 12,
-            color: AppColors.hazeBlue.withOpacity(0.5),
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
         const Spacer(),
@@ -582,7 +568,7 @@ class TreeholePageState extends State<TreeholePage> {
               '清空全部',
               style: TextStyle(
                 fontSize: 12,
-                color: AppColors.softPink.withOpacity(0.6),
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ),
@@ -600,12 +586,12 @@ class TreeholePageState extends State<TreeholePage> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 36),
           decoration: BoxDecoration(
-            color: Theme.of(context).cardColor.withOpacity(0.4),
+            color: Theme.of(context).cardColor.withValues(alpha: 0.4),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(
             children: [
-              Icon(Icons.park_outlined, size: 36, color: AppColors.hazeBlue.withOpacity(0.3)),
+              Icon(Icons.park_outlined, size: 36, color: Theme.of(context).colorScheme.onSurface),
               const SizedBox(height: 12),
               Text(
                 '还没有记录',
@@ -635,12 +621,12 @@ class TreeholePageState extends State<TreeholePage> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           color: isActive
-              ? AppColors.hazeBlue.withOpacity(0.12)
-              : Theme.of(context).cardColor.withOpacity(0.6),
-          borderRadius: BorderRadius.circular(20),
+              ? AppColors.hazeBlue.withValues(alpha: 0.12)
+              : Theme.of(context).cardColor.withValues(alpha: 0.6),
+          borderRadius: AppRadius.pillB,
           border: Border.all(
-            color: isActive ? AppColors.hazeBlue.withOpacity(0.4) : AppColors.divider.withOpacity(0.5),
-            width: 1,
+            color: AppStroke.inkOf(context),
+            width: AppStroke.thin,
           ),
         ),
         child: Row(
@@ -650,8 +636,8 @@ class TreeholePageState extends State<TreeholePage> {
               icon,
               size: 14,
               color: isActive
-                  ? AppColors.hazeBlue
-                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                  ? Theme.of(context).colorScheme.onSurface
+                  : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
             ),
             const SizedBox(width: 5),
             Text(
@@ -659,8 +645,8 @@ class TreeholePageState extends State<TreeholePage> {
               style: TextStyle(
                 fontSize: 12,
                 color: isActive
-                    ? AppColors.hazeBlue
-                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                    ? Theme.of(context).colorScheme.onSurface
+                    : Theme.of(context).colorScheme.onSurface,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
@@ -685,7 +671,8 @@ class TreeholePageState extends State<TreeholePage> {
     final emotionColor = emotionColors[record.dominantEmotion] ?? AppColors.hazeBlue;
     final isPending = record.dominantEmotion == '分析中...';
 
-    return Padding(
+    final card = Padding(
+      key: _recordKey(record.id),
       padding: const EdgeInsets.only(bottom: 10),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -693,7 +680,8 @@ class TreeholePageState extends State<TreeholePage> {
           color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: AppColors.hazeBlue.withOpacity(0.08),
+            color: AppStroke.inkOf(context),
+            width: AppStroke.standard,
           ),
         ),
         child: Row(
@@ -704,7 +692,7 @@ class TreeholePageState extends State<TreeholePage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: emotionColor.withOpacity(0.1),
+                color: emotionColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               alignment: Alignment.center,
@@ -725,7 +713,7 @@ class TreeholePageState extends State<TreeholePage> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: emotionColor.withOpacity(0.1),
+                          color: emotionColor.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
@@ -737,7 +725,7 @@ class TreeholePageState extends State<TreeholePage> {
                                 height: 12,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 1.5,
-                                  color: emotionColor.withOpacity(0.7),
+                                  color: emotionColor.withValues(alpha: 0.7),
                                 ),
                               ),
                               const SizedBox(width: 6),
@@ -746,7 +734,7 @@ class TreeholePageState extends State<TreeholePage> {
                               record.dominantEmotion,
                               style: TextStyle(
                                 fontSize: 11,
-                                color: emotionColor,
+                                color: Theme.of(context).colorScheme.onSurface,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -767,7 +755,7 @@ class TreeholePageState extends State<TreeholePage> {
                               child: Icon(
                                 Icons.close,
                                 size: 16,
-                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.25),
+                                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.25),
                               ),
                             ),
                           ],
@@ -794,7 +782,7 @@ class TreeholePageState extends State<TreeholePage> {
                           height: 14,
                           child: CircularProgressIndicator(
                             strokeWidth: 1.5,
-                            color: AppColors.hazeBlue.withOpacity(0.5),
+                            color: AppColors.hazeBlue.withValues(alpha: 0.5),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -813,22 +801,23 @@ class TreeholePageState extends State<TreeholePage> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                         decoration: BoxDecoration(
-                          color: AppColors.hazeBlue.withOpacity(0.07),
+                          color: AppColors.hazeBlue.withValues(alpha: 0.07),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: AppColors.hazeBlue.withOpacity(0.12),
+                            color: AppStroke.inkOf(context),
+                            width: AppStroke.thin,
                           ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.auto_awesome, size: 14, color: AppColors.hazeBlue),
+                            Icon(Icons.auto_awesome, size: 14, color: Theme.of(context).colorScheme.onSurface),
                             const SizedBox(width: 6),
                             Text(
                               '查看详细情绪报告',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: AppColors.hazeBlue,
+                                color: Theme.of(context).colorScheme.onSurface,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -843,6 +832,11 @@ class TreeholePageState extends State<TreeholePage> {
           ],
         ),
       ),
+    );
+    // 删除动画播放中：保持布局的透明占位，让纸飞机"接力"这张卡片
+    return Opacity(
+      opacity: _flyingId == record.id ? 0 : 1,
+      child: card,
     );
   }
 
@@ -871,27 +865,13 @@ class TreeholePageState extends State<TreeholePage> {
                 ? '连续$_pinMaxFails次错误，已禁用输入$_pinLockSeconds秒（${_pinLockRemaining}秒后恢复）'
                 : '密码错误，还可尝试${_pinMaxFails - _pinFailCount}次',
           ),
-          backgroundColor: AppColors.softPink,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 2),
         ),
       );
     }
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientColors = isDark
-        ? [AppColors.hazeBlue.withOpacity(0.12), AppColors.darkBackground]
-        : [AppColors.hazeBlue.withOpacity(0.05), AppColors.background];
-
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: gradientColors,
-          ),
-        ),
+      body: LowPolyBackground(
         child: SafeArea(
           child: Center(
             child: Column(
@@ -901,13 +881,13 @@ class TreeholePageState extends State<TreeholePage> {
                   width: 88,
                   height: 88,
                   decoration: BoxDecoration(
-                    color: AppColors.hazeBlue.withOpacity(0.08),
+                    color: AppColors.hazeBlue.withValues(alpha: 0.08),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     Icons.lock_outline,
                     size: 40,
-                    color: AppColors.hazeBlue.withOpacity(0.5),
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -933,20 +913,9 @@ class TreeholePageState extends State<TreeholePage> {
                     enabled: !_isPinLockedOut,
                     decoration: InputDecoration(
                       hintText: _isPinLockedOut ? '$_pinLockRemaining秒后可重试' : '请输入密码',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: AppColors.hazeBlue.withOpacity(0.2)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide(color: AppColors.hazeBlue.withOpacity(0.15)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: AppColors.hazeBlue, width: 1.5),
-                      ),
+                      // 继承主题：2px ink 描边 / focused hazeBlue
                       suffixIcon: IconButton(
-                        icon: const Icon(Icons.lock_open_outlined, color: AppColors.hazeBlue),
+                        icon: Icon(Icons.lock_open_outlined, color: Theme.of(context).colorScheme.onSurface),
                         onPressed: _isPinLockedOut ? null : tryUnlock,
                       ),
                     ),
@@ -962,9 +931,9 @@ class TreeholePageState extends State<TreeholePage> {
                     '忘记密码？',
                     style: TextStyle(
                       fontSize: 13,
-                      color: AppColors.hazeBlue.withOpacity(0.7),
+                      color: Theme.of(context).colorScheme.onSurface,
                       decoration: TextDecoration.underline,
-                      decorationColor: AppColors.hazeBlue.withOpacity(0.35),
+                      decorationColor: AppColors.hazeBlue.withValues(alpha: 0.35),
                     ),
                   ),
                 ),
@@ -1004,25 +973,41 @@ class TreeholePageState extends State<TreeholePage> {
 
   // ============ RECORD MANAGEMENT ============
 
+  /// 取某条日记卡片的屏幕矩形（动画起点）；不可见时返回 null
+  Rect? _recordRect(String id) {
+    final box = _recordKey(id).currentContext?.findRenderObject();
+    if (box is RenderBox && box.attached && box.hasSize) {
+      return box.localToGlobal(Offset.zero) & box.size;
+    }
+    return null;
+  }
+
   Future<void> _deleteRecord(String id) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('删除日记'),
         content: const Text('确定要删除这条情绪日记吗？删除后无法恢复。'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text('删除', style: TextStyle(color: AppColors.softPink)),
+            child: Text('删除', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),
     );
     if (confirmed == true && mounted) {
+      // 取卡片位置 → 卡片隐身、播"纸飞机飞入垃圾桶" → 飞完再真正删除
+      final rect = _recordRect(id);
+      if (rect != null) {
+        setState(() => _flyingId = id);
+        await showFlyToTrash(context, fromRect: rect);
+        if (!mounted) return;
+      }
       await _storageService.deleteRecord(id);
       await _loadRecords();
+      if (mounted) setState(() => _flyingId = null);
     }
   }
 
@@ -1031,14 +1016,13 @@ class TreeholePageState extends State<TreeholePage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('清空所有日记'),
         content: const Text('确定要删除全部情绪日记吗？此操作不可恢复。'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text('全部删除', style: TextStyle(color: AppColors.softPink)),
+            child: Text('全部删除', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),
@@ -1067,14 +1051,13 @@ class TreeholePageState extends State<TreeholePage> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Text('锁定树洞'),
           content: const Text('锁定后需要输入密码才能访问，是否确认？'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text('确认锁定', style: TextStyle(color: AppColors.hazeBlue)),
+              child: Text('确认锁定', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
           ],
         ),
@@ -1095,7 +1078,6 @@ class TreeholePageState extends State<TreeholePage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Text(title),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1134,7 +1116,7 @@ class TreeholePageState extends State<TreeholePage> {
                   controller.clear();
                 }
               },
-              child: Text('下一步', style: TextStyle(color: AppColors.hazeBlue)),
+              child: Text('下一步', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
           ],
         ),
@@ -1149,7 +1131,6 @@ class TreeholePageState extends State<TreeholePage> {
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('确认密码'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1176,7 +1157,7 @@ class TreeholePageState extends State<TreeholePage> {
                 Navigator.pop(context, false);
               }
             },
-            child: Text('确认', style: TextStyle(color: AppColors.hazeBlue)),
+            child: Text('确认', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),
@@ -1192,10 +1173,9 @@ class TreeholePageState extends State<TreeholePage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
-            Icon(Icons.security, color: AppColors.softOrange, size: 24),
+            Icon(Icons.security, color: Theme.of(context).colorScheme.onSurface, size: 24),
             const SizedBox(width: 8),
             const Text('二级安保设置'),
           ],
@@ -1239,14 +1219,12 @@ class TreeholePageState extends State<TreeholePage> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text('密保已设置，忘记密码时可通过密保找回'),
-                    backgroundColor: AppColors.calmGreen,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     duration: const Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: Text('确认设置', style: TextStyle(color: AppColors.hazeBlue)),
+            child: Text('确认设置', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),
@@ -1261,13 +1239,12 @@ class TreeholePageState extends State<TreeholePage> {
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: const Text('无法找回'),
             content: const Text('尚未设置密保问题，无法通过此方式找回密码。'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: Text('知道了', style: TextStyle(color: AppColors.hazeBlue)),
+                child: Text('知道了', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               ),
             ],
           ),
@@ -1285,10 +1262,9 @@ class TreeholePageState extends State<TreeholePage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(
             children: [
-              Icon(Icons.help_outline, color: AppColors.softOrange, size: 24),
+              Icon(Icons.help_outline, color: Theme.of(context).colorScheme.onSurface, size: 24),
               const SizedBox(width: 8),
               const Text('找回密码'),
             ],
@@ -1302,7 +1278,7 @@ class TreeholePageState extends State<TreeholePage> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.softOrange.withOpacity(0.08),
+                  color: AppColors.softOrange.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -1332,7 +1308,7 @@ class TreeholePageState extends State<TreeholePage> {
                   setDialogState(() => errorText = '答案错误，请重试');
                 }
               },
-              child: Text('验证', style: TextStyle(color: AppColors.hazeBlue)),
+              child: Text('验证', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
           ],
         ),
@@ -1353,8 +1329,6 @@ class TreeholePageState extends State<TreeholePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('密码已重置，树洞已解锁'),
-            backgroundColor: AppColors.calmGreen,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             duration: const Duration(seconds: 2),
           ),
         );

@@ -2,9 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../app/themes/app_colors.dart';
+import '../../app/styles/app_styles.dart';
+import '../../app/styles/ui_style.dart';
 import '../../app/responsive/adaptive_content_wrapper.dart';
 import '../../app/app_controller.dart';
 import '../../services/storage_service.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/lowpoly_background.dart';
+import '../../widgets/lowpoly_decor.dart';
 import '../../widgets/unified_config_dialog.dart';
 
 class PrivacyPage extends StatefulWidget {
@@ -98,49 +103,42 @@ class PrivacyPageState extends State<PrivacyPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientColors = isDark
-        ? [AppColors.gentlePurple.withValues(alpha: 0.15), AppColors.darkBackground]
-        : [AppColors.gentlePurple.withValues(alpha: 0.06), AppColors.background];
-
     return Scaffold(
       appBar: AppBar(
         title: Text(
           '隐私中心',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.hazeBlue,
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600,
               ),
         ),
         elevation: 0,
         surfaceTintColor: Colors.transparent,
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: gradientColors,
-          ),
-        ),
+      body: LowPolyBackground(
+        tint: AppColors.gentlePurple,
+        tintAlpha: 0.06,
+        tintAlphaDark: 0.15,
         child: AdaptiveContentWrapper(
           child: SingleChildScrollView(
             padding: const EdgeInsets.only(top: 12, bottom: 32),
-          child: Column(
-            children: [
-              _buildSecurityStatusCard(),
-              const SizedBox(height: 16),
-              _buildSettingsSection(),
-              const SizedBox(height: 16),
-              _buildDangerZoneSection(),
-              const SizedBox(height: 16),
-              _buildAdvancedSettingsSection(),
-              const SizedBox(height: 16),
-              _buildPrivacyPolicySection(),
-              const SizedBox(height: 16),
-            ],
+            child: Column(
+              children: [
+                _buildSecurityStatusCard(),
+                const SizedBox(height: 16),
+                _buildAppearanceSection(),
+                const SizedBox(height: 16),
+                _buildSettingsSection(),
+                const SizedBox(height: 16),
+                _buildDangerZoneSection(),
+                const SizedBox(height: 16),
+                _buildAdvancedSettingsSection(),
+                const SizedBox(height: 16),
+                _buildPrivacyPolicySection(),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
-        ),
         ),
       ),
     );
@@ -151,45 +149,38 @@ class PrivacyPageState extends State<PrivacyPage> {
   Widget _buildSecurityStatusCard() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.gentlePurple.withValues(alpha: 0.04),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: AppColors.gentlePurple.withValues(alpha: 0.15),
-            width: 1,
-          ),
-        ),
+      child: AppCard(
+        color: AppColors.gentlePurple.withValues(alpha: 0.04),
+        tint: AppColors.gentlePurple,
         padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
         child: Column(
           children: [
-            // 安全图标外圈装饰
-            Container(
+            // 安全图标外圈装饰：多边形环（六边形 shard）替代原柔光圆
+            SizedBox(
               width: 80,
               height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [
-                    AppColors.calmGreen.withValues(alpha: 0.18),
-                    AppColors.gentlePurple.withValues(alpha: 0.10),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Center(
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.calmGreen.withValues(alpha: 0.15),
-                  ),
-                  child: const Icon(
-                    Icons.verified_user_outlined,
-                    color: AppColors.calmGreen,
-                    size: 30,
+              child: GeometricShard(
+                color: AppColors.calmGreen,
+                size: 80,
+                sides: 6,
+                fillAlpha: 0.18,
+                child: Center(
+                  child: SizedBox(
+                    width: 56,
+                    height: 56,
+                    child: GeometricShard(
+                      color: AppColors.calmGreen,
+                      size: 56,
+                      sides: 6,
+                      fillAlpha: 0.15,
+                      child: Center(
+                        child: Icon(
+                          Icons.verified_user_outlined,
+                          color: Theme.of(context).colorScheme.onSurface,
+                          size: 30,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -198,7 +189,7 @@ class PrivacyPageState extends State<PrivacyPage> {
             Text(
               '你的隐私已被保护',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: AppColors.calmGreen,
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontWeight: FontWeight.w600,
                   ),
             ),
@@ -213,11 +204,116 @@ class PrivacyPageState extends State<PrivacyPage> {
               child: Text(
                 '~ ~ ~',
                 style: TextStyle(
-                  color: AppColors.gentlePurple.withValues(alpha: 0.20),
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 14,
                   letterSpacing: 6,
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ===================== 外观（UI 风格切换）=====================
+
+  /// 「外观」区块：安全状态卡片之后、安全设置之前。
+  /// 两张并排选项卡，点击 → UiStyleScope.set → 根部监听整树即时换肤。
+  Widget _buildAppearanceSection() {
+    final current = UiStyleScope.of(context);
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionTitle(
+            icon: Icons.palette_outlined,
+            text: '外观',
+            color: onSurface,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(child: _buildStyleOptionCard(AppUiStyle.lowPoly, current)),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: _buildStyleOptionCard(AppUiStyle.watercolor, current)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStyleOptionCard(AppUiStyle style, AppUiStyle current) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final selected = style == current;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => UiStyleScope.set(style),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context)
+              .cardColor
+              .withValues(alpha: selected ? 0.95 : 0.55),
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          // 选中态：当前风格统一 2px ink 边（AppStroke 按风格自动分流）
+          border: selected
+              ? AppStroke.all(context)
+              : Border.all(
+                  color: onSurface.withValues(alpha: 0.18), width: 1.2),
+          boxShadow: selected ? AppShadow.hard(context, dy: 2) : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 迷你预览（48px CustomPaint）
+            SizedBox(
+              height: 48,
+              width: double.infinity,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.xs),
+                child: CustomPaint(
+                  painter: style == AppUiStyle.lowPoly
+                      ? const _MiniLowPolyPainter()
+                      : const _MiniSkyPainter(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    style.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+                if (selected) ...[
+                  const SizedBox(width: 4),
+                  Icon(Icons.check_circle, size: 18, color: onSurface),
+                ],
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              style.caption,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: onSurface.withValues(alpha: 0.6),
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
             ),
           ],
         ),
@@ -236,18 +332,12 @@ class PrivacyPageState extends State<PrivacyPage> {
           _buildSectionTitle(
             icon: Icons.security,
             text: '安全设置',
-            color: AppColors.gentlePurple,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
           const SizedBox(height: 10),
-          Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: AppColors.gentlePurple.withValues(alpha: 0.10),
-                width: 1,
-              ),
-            ),
+          AppCard(
+            color: Theme.of(context).cardColor.withValues(alpha: 0.5),
+            padding: EdgeInsets.zero,
             child: Column(
               children: [
                 _buildSwitchTile(
@@ -255,8 +345,8 @@ class PrivacyPageState extends State<PrivacyPage> {
                   title: '树洞锁定',
                   subtitle: '锁定后需要密码才能访问树洞',
                   value: _isLocked,
-                  iconColor: AppColors.gentlePurple,
-                  activeColor: AppColors.gentlePurple,
+                  iconColor: Theme.of(context).colorScheme.onSurface,
+                  activeColor: Theme.of(context).colorScheme.onSurface,
                   onChanged: (val) async {
                     if (val) {
                       await _handleEnableLock();
@@ -273,15 +363,15 @@ class PrivacyPageState extends State<PrivacyPage> {
                   height: 1,
                   indent: 64,
                   endIndent: 20,
-                  color: AppColors.gentlePurple.withValues(alpha: 0.10),
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
                 ),
                 _buildSwitchTile(
                   icon: Icons.dark_mode_outlined,
                   title: '夜间护眼模式',
                   subtitle: '降低屏幕亮度，保护眼睛',
                   value: _darkMode,
-                  iconColor: AppColors.gentlePurple,
-                  activeColor: AppColors.gentlePurple,
+                  iconColor: Theme.of(context).colorScheme.onSurface,
+                  activeColor: Theme.of(context).colorScheme.onSurface,
                   onChanged: (val) async {
                     setState(() => _darkMode = val);
                     _appController.toggleDarkMode(val);
@@ -290,7 +380,6 @@ class PrivacyPageState extends State<PrivacyPage> {
                       context: context,
                       barrierDismissible: false,
                       builder: (context) => AlertDialog(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                         title: const Text('温馨提示'),
                         content: const Text('桌面图标已更换，点击确定退出应用后生效。'),
                         actions: [
@@ -300,7 +389,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                           ),
                           TextButton(
                             onPressed: () => Navigator.pop(context, true),
-                            child: Text('确定', style: TextStyle(color: AppColors.hazeBlue)),
+                            child: Text('确定', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
                           ),
                         ],
                       ),
@@ -333,25 +422,19 @@ class PrivacyPageState extends State<PrivacyPage> {
           _buildSectionTitle(
             icon: Icons.warning_amber_rounded,
             text: '危险操作',
-            color: AppColors.angerRed,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
           const SizedBox(height: 10),
-          Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: AppColors.angerRed.withValues(alpha: 0.12),
-                width: 1,
-              ),
-            ),
+          AppCard(
+            color: Theme.of(context).cardColor.withValues(alpha: 0.5),
+            padding: EdgeInsets.zero,
             child: Column(
               children: [
                 _buildActionTile(
                   icon: Icons.delete_outline,
                   title: '一键清空所有记录',
                   subtitle: '清空情绪日记、对话、梦境等全部数据，不可恢复',
-                  color: AppColors.angerRed,
+                  color: Theme.of(context).colorScheme.onSurface,
                   onTap: _confirmClearAll,
                 ),
                 Divider(
@@ -364,7 +447,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                   icon: Icons.lock_reset_outlined,
                   title: '修改树洞密码',
                   subtitle: '设置新的访问密码',
-                  color: AppColors.softOrange,
+                  color: Theme.of(context).colorScheme.onSurface,
                   onTap: _showSetPinDialog,
                 ),
               ],
@@ -386,25 +469,19 @@ class PrivacyPageState extends State<PrivacyPage> {
           _buildSectionTitle(
             icon: Icons.tune,
             text: '高级设置',
-            color: AppColors.hazeBlue,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
           const SizedBox(height: 10),
-          Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: AppColors.hazeBlue.withValues(alpha: 0.10),
-                width: 1,
-              ),
-            ),
+          AppCard(
+            color: Theme.of(context).cardColor.withValues(alpha: 0.5),
+            padding: EdgeInsets.zero,
             child: Column(
               children: [
                 _buildActionTile(
                   icon: Icons.api,
                   title: 'API 配置',
                   subtitle: '大模型 & 语音合成 API 设置',
-                  color: AppColors.hazeBlue,
+                  color: Theme.of(context).colorScheme.onSurface,
                   onTap: () => showUnifiedConfigDialog(context),
                 ),
               ],
@@ -426,18 +503,11 @@ class PrivacyPageState extends State<PrivacyPage> {
           _buildSectionTitle(
             icon: Icons.description_outlined,
             text: '隐私政策',
-            color: AppColors.calmGreen,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
           const SizedBox(height: 10),
-          Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: AppColors.calmGreen.withValues(alpha: 0.12),
-                width: 1,
-              ),
-            ),
+          AppCard(
+            color: Theme.of(context).cardColor.withValues(alpha: 0.5),
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
             child: Column(
               children: [
@@ -453,7 +523,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                   child: Text(
                     '~ ~ ~',
                     style: TextStyle(
-                      color: AppColors.calmGreen.withValues(alpha: 0.20),
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 14,
                       letterSpacing: 6,
                     ),
@@ -493,15 +563,15 @@ class PrivacyPageState extends State<PrivacyPage> {
             height: 28,
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: AppRadius.smB,
             ),
-            child: Icon(icon, size: 16, color: color),
+            child: Icon(icon, size: 16, color: Theme.of(context).colorScheme.onSurface),
           ),
           const SizedBox(width: 8),
           Text(
             text,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: color,
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontWeight: FontWeight.w600,
                 ),
           ),
@@ -526,7 +596,7 @@ class PrivacyPageState extends State<PrivacyPage> {
         height: 40,
         decoration: BoxDecoration(
           color: iconColor.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: AppRadius.smB,
         ),
         child: Icon(icon, color: iconColor, size: 20),
       ),
@@ -561,13 +631,17 @@ class PrivacyPageState extends State<PrivacyPage> {
         height: 40,
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: AppRadius.smB,
         ),
-        child: Icon(icon, color: color, size: 20),
+        child: Icon(icon, color: Theme.of(context).colorScheme.onSurface, size: 20),
       ),
       title: Text(
         title,
-        style: TextStyle(fontSize: 15, color: color, fontWeight: FontWeight.w500),
+        style: TextStyle(
+          fontSize: 15,
+          color: Theme.of(context).colorScheme.onSurface,
+          fontWeight: FontWeight.w500,
+        ),
       ),
       subtitle: Text(
         subtitle,
@@ -578,7 +652,6 @@ class PrivacyPageState extends State<PrivacyPage> {
         color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.25),
         size: 18,
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       onTap: onTap,
     );
   }
@@ -595,9 +668,9 @@ class PrivacyPageState extends State<PrivacyPage> {
               color: AppColors.calmGreen.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(7),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.check_circle_outline,
-              color: AppColors.calmGreen,
+              color: Theme.of(context).colorScheme.onSurface,
               size: 14,
             ),
           ),
@@ -631,14 +704,13 @@ class PrivacyPageState extends State<PrivacyPage> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Text('锁定树洞'),
           content: const Text('锁定后需要输入密码才能访问，是否确认？'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text('确认锁定', style: TextStyle(color: AppColors.hazeBlue)),
+              child: Text('确认锁定', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
           ],
         ),
@@ -666,7 +738,6 @@ class PrivacyPageState extends State<PrivacyPage> {
           // 注册弹窗刷新器，锁屏倒计时可实时刷新本弹窗
           _pinDialogUpdater = setDialogState;
           return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: const Text('解锁树洞'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -694,7 +765,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                       '忘记密码？',
                       style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.hazeBlue.withValues(alpha: 0.7),
+                        color: Theme.of(context).colorScheme.onSurface,
                         decoration: TextDecoration.underline,
                       ),
                     ),
@@ -724,7 +795,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                           });
                         }
                       },
-                child: Text('解锁', style: TextStyle(color: AppColors.hazeBlue)),
+                child: Text('解锁', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               ),
             ],
           );
@@ -743,13 +814,12 @@ class PrivacyPageState extends State<PrivacyPage> {
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: const Text('无法找回'),
             content: const Text('尚未设置密保问题，无法通过此方式找回密码。'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: Text('知道了', style: TextStyle(color: AppColors.hazeBlue)),
+                child: Text('知道了', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               ),
             ],
           ),
@@ -767,10 +837,9 @@ class PrivacyPageState extends State<PrivacyPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(
             children: [
-              Icon(Icons.help_outline, color: AppColors.softOrange, size: 24),
+              Icon(Icons.help_outline, color: Theme.of(context).colorScheme.onSurface, size: 24),
               const SizedBox(width: 8),
               const Text('找回密码'),
             ],
@@ -785,7 +854,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: AppColors.softOrange.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: AppRadius.smB,
                 ),
                 child: Text(
                   question ?? '',
@@ -814,7 +883,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                   setDialogState(() => errorText = '答案错误，请重试');
                 }
               },
-              child: Text('验证', style: TextStyle(color: AppColors.hazeBlue)),
+              child: Text('验证', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
           ],
         ),
@@ -833,8 +902,6 @@ class PrivacyPageState extends State<PrivacyPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('密码已重置，锁定已解除'),
-            backgroundColor: AppColors.calmGreen,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -846,7 +913,6 @@ class PrivacyPageState extends State<PrivacyPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('确认清空'),
         content: const Text(
           '此操作将永久删除以下本机数据，且不可恢复：\n'
@@ -866,12 +932,10 @@ class PrivacyPageState extends State<PrivacyPage> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: const Text('已清空情绪日记、对话、梦境等全部数据'),
-                  backgroundColor: AppColors.calmGreen,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               );
             },
-            child: Text('确认清空', style: TextStyle(color: AppColors.angerRed)),
+            child: Text('确认清空', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),
@@ -887,8 +951,6 @@ class PrivacyPageState extends State<PrivacyPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('密码设置成功'),
-            backgroundColor: AppColors.calmGreen,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
         await _showRecoveryQASetupDialog();
@@ -901,8 +963,6 @@ class PrivacyPageState extends State<PrivacyPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Text('密码修改成功'),
-              backgroundColor: AppColors.calmGreen,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
           );
           // 修改密码后强制更新密保
@@ -924,7 +984,6 @@ class PrivacyPageState extends State<PrivacyPage> {
           // 注册弹窗刷新器，锁屏倒计时可实时刷新本弹窗
           _pinDialogUpdater = setDialogState;
           return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: const Text('验证旧密码'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -952,7 +1011,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                       '忘记密码？',
                       style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.hazeBlue.withValues(alpha: 0.7),
+                        color: Theme.of(context).colorScheme.onSurface,
                         decoration: TextDecoration.underline,
                       ),
                     ),
@@ -982,7 +1041,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                           });
                         }
                       },
-                child: Text('确认', style: TextStyle(color: AppColors.hazeBlue)),
+                child: Text('确认', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               ),
             ],
           );
@@ -1001,13 +1060,12 @@ class PrivacyPageState extends State<PrivacyPage> {
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: const Text('无法找回'),
             content: const Text('尚未设置密保问题，无法通过此方式找回密码。'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: Text('知道了', style: TextStyle(color: AppColors.hazeBlue)),
+                child: Text('知道了', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
               ),
             ],
           ),
@@ -1025,10 +1083,9 @@ class PrivacyPageState extends State<PrivacyPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(
             children: [
-              Icon(Icons.help_outline, color: AppColors.softOrange, size: 24),
+              Icon(Icons.help_outline, color: Theme.of(context).colorScheme.onSurface, size: 24),
               const SizedBox(width: 8),
               const Text('找回密码'),
             ],
@@ -1043,7 +1100,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: AppColors.softOrange.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: AppRadius.smB,
                 ),
                 child: Text(
                   question ?? '',
@@ -1072,7 +1129,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                   setDialogState(() => errorText = '答案错误，请重试');
                 }
               },
-              child: Text('验证', style: TextStyle(color: AppColors.hazeBlue)),
+              child: Text('验证', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
           ],
         ),
@@ -1087,8 +1144,6 @@ class PrivacyPageState extends State<PrivacyPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('密码已重置'),
-            backgroundColor: AppColors.calmGreen,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -1105,7 +1160,6 @@ class PrivacyPageState extends State<PrivacyPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Text(title),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1143,7 +1197,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                   controller.clear();
                 }
               },
-              child: Text('下一步', style: TextStyle(color: AppColors.hazeBlue)),
+              child: Text('下一步', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
           ],
         ),
@@ -1158,7 +1212,6 @@ class PrivacyPageState extends State<PrivacyPage> {
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('确认密码'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1185,7 +1238,7 @@ class PrivacyPageState extends State<PrivacyPage> {
                 Navigator.pop(context, false);
               }
             },
-            child: Text('确认', style: TextStyle(color: AppColors.hazeBlue)),
+            child: Text('确认', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),
@@ -1201,10 +1254,9 @@ class PrivacyPageState extends State<PrivacyPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
-            Icon(Icons.security, color: AppColors.softOrange, size: 24),
+            Icon(Icons.security, color: Theme.of(context).colorScheme.onSurface, size: 24),
             const SizedBox(width: 8),
             const Text('二级安保设置'),
           ],
@@ -1248,17 +1300,126 @@ class PrivacyPageState extends State<PrivacyPage> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text('密保已设置，忘记密码时可通过密保找回'),
-                    backgroundColor: AppColors.calmGreen,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     duration: const Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: Text('确认设置', style: TextStyle(color: AppColors.hazeBlue)),
+            child: Text('确认设置', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),
     );
   }
+}
+
+/// 外观选项卡迷你预览：贴纸描边（几块三角 + 细黑边）
+class _MiniLowPolyPainter extends CustomPainter {
+  const _MiniLowPolyPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(rect, Paint()..color = AppColors.milkWhite);
+
+    // 简化三角剖分：两行错落，几块三角即可传达 lowpoly 身份
+    final tris = <List<Offset>>[
+      [
+        Offset(0, size.height),
+        Offset(size.width * 0.34, 0),
+        Offset(size.width * 0.62, size.height),
+      ],
+      [
+        Offset(size.width * 0.34, 0),
+        Offset(size.width * 0.70, size.height * 0.45),
+        Offset(size.width * 0.62, size.height),
+      ],
+      [
+        Offset(size.width * 0.62, size.height),
+        Offset(size.width * 0.70, size.height * 0.45),
+        Offset(size.width, size.height),
+      ],
+      [
+        Offset(size.width * 0.34, 0),
+        Offset(size.width, 0),
+        Offset(size.width * 0.70, size.height * 0.45),
+      ],
+    ];
+    const fills = <Color>[
+      Color(0xFFB9CBDB), // hazeBlue 淡化
+      Color(0xFFE8C4C4), // softPink 淡化
+      Color(0xFFBFD9BF), // calmGreen 淡化
+      Color(0xFFD4C9E4), // gentlePurple 淡化
+    ];
+    final fill = Paint();
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = AppColors.inkLight;
+    for (var i = 0; i < tris.length; i++) {
+      final t = tris[i];
+      final path = Path()
+        ..moveTo(t[0].dx, t[0].dy)
+        ..lineTo(t[1].dx, t[1].dy)
+        ..lineTo(t[2].dx, t[2].dy)
+        ..close();
+      fill.color = fills[i % fills.length];
+      canvas.drawPath(path, fill);
+      canvas.drawPath(path, stroke);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MiniLowPolyPainter oldDelegate) => false;
+}
+
+/// 外观选项卡迷你预览：水彩天空（渐变 + 一朵云 + 一道光带）
+class _MiniSkyPainter extends CustomPainter {
+  const _MiniSkyPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final gradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        AppColors.waterWashTopLight,
+        AppColors.waterMistLight,
+        AppColors.waterCreamBg,
+      ],
+      stops: const [0.0, 0.55, 1.0],
+    );
+    canvas.drawRect(rect, Paint()..shader = gradient.createShader(rect));
+
+    // 一道斜下的丁达尔光带
+    final beam = Path()
+      ..moveTo(size.width * 0.60, 0)
+      ..lineTo(size.width * 0.74, 0)
+      ..lineTo(size.width * 0.52, size.height)
+      ..lineTo(size.width * 0.36, size.height)
+      ..close();
+    canvas.drawPath(
+      beam,
+      Paint()..color = Colors.white.withValues(alpha: 0.45),
+    );
+
+    // 一朵蓬松云（3 圆合一 path 单次填充，alpha 均匀）
+    final cx = size.width * 0.34;
+    final cy = size.height * 0.34;
+    final r = size.height * 0.15;
+    final cloud = Path()
+      ..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r))
+      ..addOval(Rect.fromCircle(
+          center: Offset(cx - r * 1.15, cy + r * 0.4), radius: r * 0.72))
+      ..addOval(Rect.fromCircle(
+          center: Offset(cx + r * 1.05, cy + r * 0.35), radius: r * 0.66));
+    canvas.drawPath(
+      cloud,
+      Paint()..color = Colors.white.withValues(alpha: 0.88),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MiniSkyPainter oldDelegate) => false;
 }

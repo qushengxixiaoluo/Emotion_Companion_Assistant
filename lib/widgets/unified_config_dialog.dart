@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../app/config/speech_config.dart';
+import '../app/styles/app_styles.dart';
 import '../app/themes/app_colors.dart';
 import '../models/llm_profile.dart';
 import '../services/llm_service.dart';
@@ -15,6 +16,7 @@ Future<void> showUnifiedConfigDialog(BuildContext context, {bool isFirstLaunch =
   final userLlmUrl = await storageService.getLlmBaseUrl();
   final userLlmKey = await storageService.getLlmApiKey();
   final userLlmModel = await storageService.getLlmModel();
+  final userLlmFormat = await storageService.getLlmApiFormat();
   final hasLlmConfig = userLlmUrl != null && userLlmUrl.isNotEmpty
       && userLlmKey != null && userLlmKey.isNotEmpty;
 
@@ -36,6 +38,7 @@ Future<void> showUnifiedConfigDialog(BuildContext context, {bool isFirstLaunch =
       initialLlmUrl: userLlmUrl ?? '',
       initialLlmKey: userLlmKey ?? '',
       initialLlmModel: userLlmModel ?? '',
+      initialLlmApiFormat: userLlmFormat ?? 'openai',
       hasLlmConfig: hasLlmConfig,
       initialTtsUrl: userTtsUrl ?? '',
       initialTtsKey: userTtsKey ?? '',
@@ -53,6 +56,7 @@ class _UnifiedConfigDialog extends StatefulWidget {
   final String initialLlmUrl;
   final String initialLlmKey;
   final String initialLlmModel;
+  final String initialLlmApiFormat;
   final bool hasLlmConfig;
   final String initialTtsUrl;
   final String initialTtsKey;
@@ -67,6 +71,7 @@ class _UnifiedConfigDialog extends StatefulWidget {
     required this.initialLlmUrl,
     required this.initialLlmKey,
     required this.initialLlmModel,
+    required this.initialLlmApiFormat,
     required this.hasLlmConfig,
     required this.initialTtsUrl,
     required this.initialTtsKey,
@@ -87,6 +92,8 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
   late final TextEditingController _llmUrlCtrl;
   late final TextEditingController _llmKeyCtrl;
   late final TextEditingController _llmModelCtrl;
+  // API 格式：'openai'（OpenAI 兼容）| 'anthropic'（Anthropic 原生）
+  late String _llmApiFormat;
   bool _llmObscureKey = true;
   bool _llmTesting = false;
   bool _llmTestPassed = false;
@@ -112,6 +119,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
     _llmUrlCtrl = TextEditingController(text: widget.initialLlmUrl);
     _llmKeyCtrl = TextEditingController(text: widget.initialLlmKey);
     _llmModelCtrl = TextEditingController(text: widget.initialLlmModel);
+    _llmApiFormat = widget.initialLlmApiFormat;
     _llmTestPassed = widget.hasLlmConfig;
 
     _ttsUrlCtrl = TextEditingController(text: widget.initialTtsUrl);
@@ -163,14 +171,13 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
   Widget build(BuildContext context) {
     final dialog = AlertDialog(
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       titlePadding: EdgeInsets.zero,
       contentPadding: EdgeInsets.zero,
       title: Container(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
         decoration: const BoxDecoration(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.dialog)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -198,7 +205,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
                       const Text('API 配置', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
                       Text(
                         '大模型 & 语音合成',
-                        style: TextStyle(fontSize: 11, color: AppColors.textHint.withValues(alpha: 0.7)),
+                        style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface),
                       ),
                     ],
                   ),
@@ -211,17 +218,17 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
                   color: AppColors.softOrange.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.softOrange.withValues(alpha: 0.2)),
+                  borderRadius: AppRadius.smB,
+                  border: AppStroke.all(context),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, size: 18, color: AppColors.softOrange),
+                    Icon(Icons.info_outline, size: 18, color: Theme.of(context).colorScheme.onSurface),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         '请先配置大模型和语音合成服务，或选择跳过。未配置时相关功能将不可用，之后可在「我的 → API 配置」中随时设置。',
-                        style: TextStyle(fontSize: 12, color: AppColors.softOrange.withValues(alpha: 0.85), height: 1.5),
+                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface, height: 1.5),
                       ),
                     ),
                   ],
@@ -234,25 +241,19 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
               height: 40,
               decoration: BoxDecoration(
                 color: AppColors.textHint.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: AppRadius.smB,
               ),
               child: TabBar(
                 controller: _tabController,
                 indicator: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 4,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
+                  borderRadius: AppRadius.smB,
+                  boxShadow: AppShadow.hard(context, dy: 2, alpha: 0.20),
                 ),
                 indicatorSize: TabBarIndicatorSize.tab,
                 dividerHeight: 0,
-                labelColor: AppColors.hazeBlue,
-                unselectedLabelColor: AppColors.textHint.withValues(alpha: 0.5),
+                labelColor: Theme.of(context).colorScheme.onSurface,
+                unselectedLabelColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
                 labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 unselectedLabelStyle: const TextStyle(fontSize: 13),
                 padding: const EdgeInsets.all(3),
@@ -305,11 +306,17 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildFieldLabel('API 格式'),
+          const SizedBox(height: 6),
+          _buildApiFormatSelector(),
+          const SizedBox(height: 14),
           _buildFieldLabel('API 地址'),
           const SizedBox(height: 6),
           _buildTextField(
             controller: _llmUrlCtrl,
-            hintText: 'https://api.openai.com/v1',
+            hintText: _llmApiFormat == 'anthropic'
+                ? 'https://api.anthropic.com'
+                : 'https://api.openai.com/v1',
             enabled: !_llmTesting,
             onChanged: (_) => _resetLlmTest(),
           ),
@@ -326,7 +333,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
               icon: Icon(
                 _llmObscureKey ? Icons.visibility_off_outlined : Icons.visibility_outlined,
                 size: 18,
-                color: AppColors.textHint,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
               onPressed: _llmTesting ? null : () => setState(() => _llmObscureKey = !_llmObscureKey),
             ),
@@ -336,7 +343,9 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
           const SizedBox(height: 6),
           _buildTextField(
             controller: _llmModelCtrl,
-            hintText: 'deepseek-chat / gpt-4o',
+            hintText: _llmApiFormat == 'anthropic'
+                ? 'claude-sonnet-4-5'
+                : 'deepseek-chat / gpt-4o',
             enabled: !_llmTesting,
             onChanged: (_) => _resetLlmTest(),
           ),
@@ -397,7 +406,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
     return Container(
       decoration: BoxDecoration(
         color: AppColors.textHint.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.smB,
       ),
       padding: const EdgeInsets.all(3),
       child: Row(
@@ -411,22 +420,22 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
                   color: _ttsProvider == SpeechConfig.providerSystem
                       ? Theme.of(context).colorScheme.surface
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: AppRadius.smB,
                   boxShadow: _ttsProvider == SpeechConfig.providerSystem
-                      ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                      ? AppShadow.hard(context, dy: 2, alpha: 0.20)
                       : null,
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.phone_android, size: 14, color: _ttsProvider == SpeechConfig.providerSystem ? AppColors.calmGreen : AppColors.textHint.withValues(alpha: 0.4)),
+                    Icon(Icons.phone_android, size: 14, color: _ttsProvider == SpeechConfig.providerSystem ? AppColors.calmGreen : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
                     const SizedBox(width: 6),
                     Text(
                       '系统默认',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: _ttsProvider == SpeechConfig.providerSystem ? FontWeight.w600 : FontWeight.normal,
-                        color: _ttsProvider == SpeechConfig.providerSystem ? AppColors.calmGreen : AppColors.textHint.withValues(alpha: 0.5),
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                   ],
@@ -445,20 +454,20 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(8),
                   boxShadow: _ttsProvider == SpeechConfig.providerApi
-                      ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                      ? AppShadow.hard(context, dy: 2, alpha: 0.20)
                       : null,
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.cloud_outlined, size: 14, color: _ttsProvider == SpeechConfig.providerApi ? AppColors.gentlePurple : AppColors.textHint.withValues(alpha: 0.4)),
+                    Icon(Icons.cloud_outlined, size: 14, color: _ttsProvider == SpeechConfig.providerApi ? AppColors.gentlePurple : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
                     const SizedBox(width: 6),
                     Text(
                       '自定义 API',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: _ttsProvider == SpeechConfig.providerApi ? FontWeight.w600 : FontWeight.normal,
-                        color: _ttsProvider == SpeechConfig.providerApi ? AppColors.gentlePurple : AppColors.textHint.withValues(alpha: 0.5),
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                   ],
@@ -479,17 +488,17 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             color: AppColors.calmGreen.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.calmGreen.withValues(alpha: 0.15)),
+            borderRadius: AppRadius.smB,
+            border: AppStroke.all(context),
           ),
           child: Row(
             children: [
-              Icon(Icons.check_circle_outline, size: 18, color: AppColors.calmGreen),
+              Icon(Icons.check_circle_outline, size: 18, color: Theme.of(context).colorScheme.onSurface),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   '使用设备系统语音引擎，无需额外配置',
-                  style: TextStyle(fontSize: 12, color: AppColors.calmGreen.withValues(alpha: 0.85), height: 1.4),
+                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface, height: 1.4),
                 ),
               ),
             ],
@@ -517,14 +526,14 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Text(
               '未检测到系统语音，点击「刷新」重试\n（Android 需安装语音引擎数据，设置 → 语言和输入 → 文字转语音）',
-              style: TextStyle(fontSize: 12, color: AppColors.textHint.withValues(alpha: 0.6), height: 1.5),
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface, height: 1.5),
             ),
           )
         else
           Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.divider),
+              borderRadius: AppRadius.smB,
+              border: AppStroke.all(context),
             ),
             constraints: const BoxConstraints(maxHeight: 160),
             child: ListView.separated(
@@ -542,10 +551,9 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
                   dense: true,
                   selected: isSelected,
                   selectedTileColor: AppColors.calmGreen.withValues(alpha: 0.06),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   title: Text(name, style: TextStyle(fontSize: 13, fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal)),
                   subtitle: locale.isNotEmpty ? Text(locale, style: const TextStyle(fontSize: 11)) : null,
-                  trailing: isSelected ? const Icon(Icons.check, size: 18, color: AppColors.calmGreen) : null,
+                  trailing: isSelected ? Icon(Icons.check, size: 18, color: Theme.of(context).colorScheme.onSurface) : null,
                   onTap: () => setState(() => _selectedSystemVoice = voiceId),
                 );
               },
@@ -573,7 +581,6 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.calmGreen,
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 elevation: 0,
               ),
               child: const Text('保存', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
@@ -609,7 +616,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
             icon: Icon(
               _ttsObscureKey ? Icons.visibility_off_outlined : Icons.visibility_outlined,
               size: 18,
-              color: AppColors.textHint,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
             onPressed: _ttsTesting ? null : () => setState(() => _ttsObscureKey = !_ttsObscureKey),
           ),
@@ -658,6 +665,61 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
     return Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600));
   }
 
+  /// API 格式二选一：OpenAI 兼容 / Anthropic 原生。
+  /// 选中态用统一 2px 描边（AppStroke.all），文字一律 onSurface。
+  Widget _buildApiFormatSelector() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.textHint.withValues(alpha: 0.05),
+        borderRadius: AppRadius.smB,
+      ),
+      padding: const EdgeInsets.all(3),
+      child: Row(
+        children: [
+          Expanded(child: _buildFormatOption('openai', 'OpenAI 兼容')),
+          Expanded(child: _buildFormatOption('anthropic', 'Anthropic 原生')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFormatOption(String value, String label) {
+    final selected = _llmApiFormat == value;
+    return GestureDetector(
+      onTap: _llmTesting
+          ? null
+          : () {
+              setState(() {
+                _llmApiFormat = value;
+                _llmTestPassed = false;
+                _llmError = null;
+              });
+            },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? Theme.of(context).colorScheme.surface
+              : Colors.transparent,
+          borderRadius: AppRadius.smB,
+          border: selected ? AppStroke.all(context) : null,
+          boxShadow: selected
+              ? AppShadow.hard(context, dy: 2, alpha: 0.20)
+              : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String hintText,
@@ -673,23 +735,12 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
       onChanged: onChanged,
       decoration: InputDecoration(
         hintText: hintText,
-        hintStyle: TextStyle(fontSize: 13, color: AppColors.textHint.withValues(alpha: 0.5)),
+        hintStyle: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
         isDense: true,
         filled: true,
         fillColor: enabled ? null : AppColors.textLight.withValues(alpha: 0.08),
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.divider),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.divider),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: AppColors.hazeBlue.withValues(alpha: 0.4), width: 1.2),
-        ),
+        // 继承主题：2px ink 描边 / focused hazeBlue
         suffixIcon: suffixIcon,
       ),
       style: const TextStyle(fontSize: 13),
@@ -702,14 +753,14 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: AppColors.softPink.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.softPink.withValues(alpha: 0.15)),
+        borderRadius: AppRadius.smB,
+        border: AppStroke.all(context),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline, size: 16, color: AppColors.softPink),
+          Icon(Icons.error_outline, size: 16, color: Theme.of(context).colorScheme.onSurface),
           const SizedBox(width: 8),
-          Expanded(child: Text(message, style: const TextStyle(fontSize: 12, color: AppColors.softPink))),
+          Expanded(child: Text(message, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface))),
         ],
       ),
     );
@@ -725,12 +776,12 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline, size: 16, color: AppColors.softOrange.withValues(alpha: 0.7)),
+          Icon(Icons.info_outline, size: 16, color: Theme.of(context).colorScheme.onSurface),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               '修改配置后需重新测试连接通过才能保存',
-              style: TextStyle(fontSize: 12, color: AppColors.softOrange.withValues(alpha: 0.8)),
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface),
             ),
           ),
         ],
@@ -766,13 +817,12 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    color: isTesting ? Theme.of(context).disabledColor : testColor,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: testColor.withValues(alpha: isTesting ? 0.15 : 0.4)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               ),
             ),
@@ -783,7 +833,6 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
                 style: FilledButton.styleFrom(
                   backgroundColor: saveColor,
                   padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   elevation: 0,
                 ),
                 child: const Text('保存', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
@@ -838,7 +887,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
     _showTestingOverlay();
 
     final (success, message) = await widget.llmService.testConnection(
-      baseUrl: url, apiKey: key, model: model,
+      baseUrl: url, apiKey: key, model: model, apiFormat: _llmApiFormat,
     );
 
     setState(() {
@@ -857,10 +906,11 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
     await widget.storageService.setLlmBaseUrl(url);
     await widget.storageService.setLlmApiKey(key);
     await widget.storageService.setLlmModel(model);
+    await widget.storageService.setLlmApiFormat(_llmApiFormat);
     await widget.storageService.setLlmConfigSubmitted(true);
     await widget.llmService.reloadConfig();
     // 同步写入配置档案（多套档案存储）
-    await _syncLlmProfile(baseUrl: url, apiKey: key, model: model);
+    await _syncLlmProfile(baseUrl: url, apiKey: key, model: model, apiFormat: _llmApiFormat);
     if (widget.isFirstLaunch) {
       await widget.storageService.setTtsConfigSubmitted(true);
       await widget.speechService.reloadTtsConfig();
@@ -870,9 +920,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('大模型配置已保存'),
-          backgroundColor: AppColors.calmGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -880,19 +928,20 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
   }
 
   /// 保存 LLM 配置时同步入档：
-  /// - 不存在与当前 baseUrl+model 匹配的档案 → 新建一套（name 取模型名）并设为 active；
-  /// - 已存在匹配的 → 直接 setActive 到它（apiKey 若有变化则顺带更新该档案）。
+  /// - 不存在与当前 baseUrl+model+apiFormat 匹配的档案 → 新建一套（name 取模型名）并设为 active；
+  /// - 已存在匹配的 → 直接 setActive 到它（apiKey/apiFormat 若有变化则顺带更新该档案）。
   Future<void> _syncLlmProfile({
     required String baseUrl,
     required String apiKey,
     required String model,
+    required String apiFormat,
   }) async {
     if (baseUrl.isEmpty || model.isEmpty) return; // 清空配置时不入档
 
     final profiles = await widget.storageService.getLlmProfiles();
     LlmProfile? matched;
     for (final p in profiles) {
-      if (p.baseUrl == baseUrl && p.model == model) {
+      if (p.baseUrl == baseUrl && p.model == model && p.apiFormat == apiFormat) {
         matched = p;
         break;
       }
@@ -905,6 +954,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
         baseUrl: baseUrl,
         apiKey: apiKey,
         model: model,
+        apiFormat: apiFormat,
       );
       await widget.storageService.upsertLlmProfile(matched);
     } else if (matched.apiKey != apiKey) {
@@ -929,6 +979,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
       _llmUrlCtrl.clear();
       _llmKeyCtrl.clear();
       _llmModelCtrl.clear();
+      _llmApiFormat = 'openai';
       _llmTestPassed = true;
       _llmError = null;
     });
@@ -993,9 +1044,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('语音配置已保存'),
-          backgroundColor: AppColors.calmGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -1027,9 +1076,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('语音配置已保存'),
-          backgroundColor: AppColors.calmGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -1070,7 +1117,6 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
       builder: (_) => PopScope(
         canPop: false,
         child: AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           content: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1091,7 +1137,6 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
     showDialog(
       context: context,
       builder: (resultCtx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Row(
           children: [
             Container(
@@ -1113,7 +1158,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
               style: TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w600,
-                color: success ? AppColors.calmGreen : AppColors.softPink,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ],
@@ -1124,7 +1169,7 @@ class _UnifiedConfigDialogState extends State<_UnifiedConfigDialog>
             onPressed: () => Navigator.pop(resultCtx),
             child: Text(
               '关闭',
-              style: TextStyle(color: success ? AppColors.calmGreen : AppColors.softPink),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
             ),
           ),
         ],

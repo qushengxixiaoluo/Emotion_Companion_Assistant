@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app/styles/app_styles.dart';
 import '../app/themes/app_colors.dart';
 import '../app/config/speech_config.dart';
 import '../services/speech_service.dart';
@@ -21,14 +22,14 @@ Future<void> showSpeechParamsDialog(BuildContext context) async {
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setDialogState) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
         titlePadding: EdgeInsets.zero,
         contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
         title: Container(
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
           decoration: BoxDecoration(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            // 与主题 dialogTheme 的 dialogB(20) 顶部圆角配对
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             gradient: LinearGradient(
               colors: [
                 AppColors.softOrange.withValues(alpha: 0.08),
@@ -47,10 +48,10 @@ Future<void> showSpeechParamsDialog(BuildContext context) async {
                   color: AppColors.softOrange.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.tune, color: AppColors.softOrange, size: 22),
+                child: Icon(Icons.tune, color: Theme.of(context).colorScheme.onSurface, size: 22),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -58,7 +59,7 @@ Future<void> showSpeechParamsDialog(BuildContext context) async {
                     Text('语音参数', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
                     Text(
                       '调节 TTS 朗读的语速、音量与音调',
-                      style: TextStyle(fontSize: 11, color: AppColors.textHint),
+                      style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface),
                     ),
                   ],
                 ),
@@ -76,6 +77,7 @@ Future<void> showSpeechParamsDialog(BuildContext context) async {
                 const SizedBox(height: 8),
 
                 _buildSliderSection(
+                  context: context,
                   icon: Icons.speed,
                   label: '语速',
                   value: speed,
@@ -91,6 +93,7 @@ Future<void> showSpeechParamsDialog(BuildContext context) async {
                 const SizedBox(height: 20),
 
                 _buildSliderSection(
+                  context: context,
                   icon: Icons.volume_up_outlined,
                   label: '音量',
                   value: volume,
@@ -106,6 +109,7 @@ Future<void> showSpeechParamsDialog(BuildContext context) async {
                 const SizedBox(height: 20),
 
                 _buildSliderSection(
+                  context: context,
                   icon: Icons.music_note_outlined,
                   label: '音调',
                   value: pitch,
@@ -157,7 +161,6 @@ Future<void> showSpeechParamsDialog(BuildContext context) async {
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.softOrange,
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         elevation: 0,
                       ),
                       child: const Text('保存', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
@@ -174,6 +177,7 @@ Future<void> showSpeechParamsDialog(BuildContext context) async {
 }
 
 Widget _buildSliderSection({
+  required BuildContext context,
   required IconData icon,
   required String label,
   required double value,
@@ -190,8 +194,8 @@ Widget _buildSliderSection({
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
       color: color.withValues(alpha: 0.04),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: color.withValues(alpha: 0.08)),
+      borderRadius: AppRadius.smB,
+      border: AppStroke.all(context, width: AppStroke.thin),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,7 +209,7 @@ Widget _buildSliderSection({
                 color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, size: 16, color: color),
+              child: Icon(icon, size: 16, color: Theme.of(context).colorScheme.onSurface),
             ),
             const SizedBox(width: 10),
             Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
@@ -218,7 +222,11 @@ Widget _buildSliderSection({
               ),
               child: Text(
                 valueText,
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
             ),
           ],
@@ -252,8 +260,8 @@ Widget _buildSliderSection({
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(minLabel, style: TextStyle(fontSize: 10, color: AppColors.textHint.withValues(alpha: 0.5))),
-              Text(maxLabel, style: TextStyle(fontSize: 10, color: AppColors.textHint.withValues(alpha: 0.5))),
+              Text(minLabel, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurface)),
+              Text(maxLabel, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurface)),
             ],
           ),
         ),

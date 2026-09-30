@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../app/config/llm_config.dart';
 import 'storage_service.dart';
 import 'function_tools.dart';
+import 'llm_api_adapter.dart';
 
 class LlmException implements Exception {
   final String message;
@@ -20,6 +21,8 @@ class LlmService {
   String _baseUrl = '';
   String _apiKey = '';
   String _model = '';
+  // API 格式：'openai'（OpenAI 兼容）或 'anthropic'（Anthropic 原生）
+  String _apiFormat = LlmApiAdapter.formatOpenai;
   int _maxTokens = LlmConfig.maxTokens;
   double _temperature = LlmConfig.temperature;
 
@@ -29,14 +32,16 @@ class LlmService {
     final userUrl = await _storageService.getLlmBaseUrl();
     final userKey = await _storageService.getLlmApiKey();
     final userModel = await _storageService.getLlmModel();
+    final userFormat = await _storageService.getLlmApiFormat();
 
     _baseUrl = (userUrl != null && userUrl.isNotEmpty) ? userUrl : '';
     _apiKey = (userKey != null && userKey.isNotEmpty) ? userKey : '';
     _model = (userModel != null && userModel.isNotEmpty) ? userModel : '';
+    _apiFormat = LlmApiAdapter.normalize(userFormat);
     _maxTokens = LlmConfig.maxTokens;
     _temperature = LlmConfig.temperature;
 
-    developer.log('【LLM配置】baseUrl: $_baseUrl, model: $_model, configured: ${_baseUrl.isNotEmpty && _apiKey.isNotEmpty}');
+    developer.log('【LLM配置】baseUrl: $_baseUrl, format: $_apiFormat, model: $_model, configured: ${_baseUrl.isNotEmpty && _apiKey.isNotEmpty}');
   }
 
   bool isConfigured() {
@@ -50,6 +55,9 @@ class LlmService {
   String get baseUrl => _baseUrl;
   String get apiKey => _apiKey;
   String get model => _model;
+
+  /// 当前 API 格式：'openai' | 'anthropic'
+  String get apiFormat => _apiFormat;
 
   final List<Map<String, dynamic>> _history = [];
 
@@ -86,43 +94,20 @@ class LlmService {
       ..._trimWindow(_history.length > 20 ? _history.sublist(_history.length - 20) : _history),
     ];
 
-    developer.log('【LLM请求】URL: $_baseUrl/chat/completions');
-    developer.log('【LLM请求】模型: $_model');
+    developer.log('【LLM请求】URL: ${LlmApiAdapter.chatUrl(_baseUrl, _apiFormat)}');
+    developer.log('【LLM请求】模型: $_model, 格式: $_apiFormat');
     developer.log('【LLM请求】消息数: ${messages.length}');
     if (tools != null) developer.log('【LLM请求】工具数: ${tools.length}');
 
     try {
-      final uri = Uri.parse('$_baseUrl/chat/completions');
-      final body = <String, dynamic>{
-        'model': _model,
-        'messages': messages,
-        'max_tokens': _maxTokens,
-        'temperature': _temperature,
-      };
+      final result = await _complete(messages: messages, tools: tools);
 
-      // Function Calling：仅在提供 tools 时附加
-      if (tools != null && tools.isNotEmpty) {
-        body['tools'] = tools;
-      }
+      if (result.statusCode == 200) {
+        final choiceMessage = result.message ?? const <String, dynamic>{};
+        final reply = choiceMessage['content'] as String? ?? '';
 
-      final response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 60));
-
-      developer.log('【LLM响应】状态码: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final choiceMessage = data['choices']?[0]?['message'];
-        final reply = choiceMessage?['content'] as String? ?? '';
-
-        // 检查是否有 tool_calls
-        final toolCalls = choiceMessage?['tool_calls'] as List<dynamic>?;
+        // 检查是否有 tool_calls（Anthropic tool_use 已在适配层还原为此形状）
+        final toolCalls = choiceMessage['tool_calls'] as List<dynamic>?;
         if (toolCalls != null && toolCalls.isNotEmpty && tools != null) {
           developer.log('【Function Calling】检测到 ${toolCalls.length} 个工具调用');
 
@@ -143,12 +128,12 @@ class LlmService {
 
             developer.log('【Function Calling】执行: $toolName($argsStr)');
 
-            final result = await FunctionTools.executeTool(toolName, args);
+            final result2 = await FunctionTools.executeTool(toolName, args);
 
             _history.add({
               'role': 'tool',
               'tool_call_id': toolCallId,
-              'content': result,
+              'content': result2,
             });
           }
 
@@ -158,23 +143,10 @@ class LlmService {
             ..._trimWindow(_history.length > 25 ? _history.sublist(_history.length - 25) : _history),
           ];
 
-          final followUpResponse = await http.post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $_apiKey',
-            },
-            body: jsonEncode({
-              'model': _model,
-              'messages': followUpMessages,
-              'max_tokens': _maxTokens,
-              'temperature': _temperature,
-            }),
-          ).timeout(const Duration(seconds: 60));
+          final followUpResult = await _complete(messages: followUpMessages);
 
-          if (followUpResponse.statusCode == 200) {
-            final followUpData = jsonDecode(followUpResponse.body);
-            final finalReply = followUpData['choices']?[0]?['message']?['content'] as String?;
+          if (followUpResult.statusCode == 200) {
+            final finalReply = followUpResult.message?['content'] as String?;
             if (finalReply != null && finalReply.isNotEmpty) {
               _history.add({'role': 'assistant', 'content': finalReply});
               return finalReply.trim();
@@ -197,13 +169,13 @@ class LlmService {
           return '抱歉，AI返回了空内容。';
         }
       } else {
-        final summary = _summarizeBody(response.body);
-        developer.log('【LLM错误】状态码: ${response.statusCode}, 响应: $summary');
-        throw LlmException('API调用失败（状态码: ${response.statusCode}）: $summary');
+        final summary = _summarizeBody(result.body);
+        developer.log('【LLM错误】状态码: ${result.statusCode}, 响应: $summary');
+        throw LlmException('API调用失败（状态码: ${result.statusCode}）: $summary');
       }
     } on FormatException catch (e) {
       developer.log('【LLM错误】格式异常: $e');
-      throw LlmException('响应解析失败: $e。请确认API为OpenAI兼容格式。');
+      throw LlmException('响应解析失败: $e。请确认API地址与所选API格式匹配。');
     } on LlmException {
       rethrow;
     } on Exception catch (e) {
@@ -268,10 +240,54 @@ class LlmService {
     return false;
   }
 
-  /// 截断响应体用于错误信息（最多 300 字符）
+  /// 截断响应体用于错误信息（最多 300 字符）。
+  /// 优先取 `error.message`（OpenAI / Anthropic 两种格式字段一致）。
   String _summarizeBody(String body) {
-    if (body.length <= 300) return body;
-    return '${body.substring(0, 300)}…';
+    final msg = LlmApiAdapter.extractErrorMessage(body);
+    if (msg.length <= 300) return msg;
+    return '${msg.substring(0, 300)}…';
+  }
+
+  /// 统一的非流式聊天补全：按 API 格式构建 URL/请求头/请求体，
+  /// 并把响应解析回 OpenAI 形状（`choices[0].message` 等价物）。
+  ///
+  /// 入参 messages/tools 均为 OpenAI 形状，Anthropic 转换在适配层完成；
+  /// 非 200 时 message 为 null，调用方按自身策略处理错误。
+  Future<({int statusCode, String body, Map<String, dynamic>? message})>
+      _complete({
+    required List<Map<String, dynamic>> messages,
+    int? maxTokens,
+    double? temperature,
+    List<Map<String, dynamic>>? tools,
+    String? baseUrl,
+    String? apiKey,
+    String? model,
+    String? apiFormat,
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    final fmt = LlmApiAdapter.normalize(apiFormat ?? _apiFormat);
+    final response = await http.post(
+      Uri.parse(LlmApiAdapter.chatUrl(baseUrl ?? _baseUrl, fmt)),
+      headers: LlmApiAdapter.headers(apiKey ?? _apiKey, fmt),
+      body: jsonEncode(LlmApiAdapter.buildBody(
+        model: model ?? _model,
+        messages: messages,
+        maxTokens: maxTokens ?? _maxTokens,
+        temperature: temperature ?? _temperature,
+        tools: tools,
+        apiFormat: fmt,
+      )),
+    ).timeout(timeout);
+
+    Map<String, dynamic>? message;
+    if (response.statusCode == 200) {
+      message = LlmApiAdapter.parseMessage(response.body, fmt);
+    }
+    return (
+      statusCode: response.statusCode,
+      body: response.body,
+      message: message,
+    );
   }
 
   /// 流式输出（SSE）
@@ -285,30 +301,42 @@ class LlmService {
       ..._trimWindow(_history.length > 20 ? _history.sublist(_history.length - 20) : _history),
     ];
 
-    developer.log('【LLM流式】URL: $_baseUrl/chat/completions');
+    developer.log('【LLM流式】URL: ${LlmApiAdapter.chatUrl(_baseUrl, _apiFormat)}, 格式: $_apiFormat');
     if (tools != null) developer.log('【LLM流式】工具数: ${tools.length}');
 
-    // 如果提供了工具，先用非流式请求处理 Function Calling
-    if (tools != null && tools.isNotEmpty) {
-      yield* _chatStreamWithTools(messages, tools, systemPrompt: effectiveSystemPrompt);
-      return;
-    }
+    // 工具与普通回复同走一条真流式通道：SSE 逐 token 下发，
+    // 流中出现 tool_calls 时由 _followUpAfterStreamTools 执行工具后接续流式。
+    // （原先这里先发非流式请求等全文再决定，首字延迟 = 整段生成时间，体感极慢）
+    yield* _streamRequest(messages, tools: tools, systemPrompt: effectiveSystemPrompt);
+  }
 
+  /// 纯流式请求：按当前 API 格式发起流式补全，SSE 归一后逐段下发。
+  /// OpenAI 的 `choices[0].delta.content` 与 Anthropic 的 `text_delta`
+  /// 在 ChatStreamAdapter 内统一成同一套增量；结束时写入历史；
+  /// 若流中出现 tool_calls（Anthropic content_block_stop 合成 /
+  /// OpenAI 分片归并）则执行工具后跟进一轮。
+  Stream<String> _streamRequest(
+    List<Map<String, dynamic>> messages, {
+    List<Map<String, dynamic>>? tools,
+    String? systemPrompt,
+    bool allowToolFollowUp = true,
+  }) async* {
     final client = http.Client();
     try {
-      final uri = Uri.parse('$_baseUrl/chat/completions');
-      final request = http.Request('POST', uri);
-      request.headers.addAll({
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_apiKey',
-      });
-      request.body = jsonEncode({
-        'model': _model,
-        'messages': messages,
-        'max_tokens': _maxTokens,
-        'temperature': _temperature,
-        'stream': true,
-      });
+      final request = http.Request(
+        'POST',
+        Uri.parse(LlmApiAdapter.chatUrl(_baseUrl, _apiFormat)),
+      );
+      request.headers.addAll(LlmApiAdapter.headers(_apiKey, _apiFormat));
+      request.body = jsonEncode(LlmApiAdapter.buildBody(
+        model: _model,
+        messages: messages,
+        maxTokens: _maxTokens,
+        temperature: _temperature,
+        tools: tools,
+        stream: true,
+        apiFormat: _apiFormat,
+      ));
 
       final response = await client.send(request).timeout(const Duration(seconds: 60));
 
@@ -319,8 +347,8 @@ class LlmService {
         throw LlmException('API调用失败（状态码: ${response.statusCode}）: $summary');
       }
 
+      final adapter = ChatStreamAdapter(_apiFormat);
       final buffer = StringBuffer();
-      String fullReply = '';
 
       await for (final chunk in response.stream.transform(utf8.decoder)) {
         buffer.write(chunk);
@@ -331,202 +359,33 @@ class LlmService {
         if (lines.isNotEmpty) buffer.write(lines.last);
 
         for (int i = 0; i < lines.length - 1; i++) {
-          final line = lines[i].trim();
-          if (line.isEmpty || line == 'data: [DONE]') continue;
-          if (line.startsWith('data: ')) {
-            try {
-              final jsonStr = line.substring(6);
-              final json = jsonDecode(jsonStr);
-              final choices = json['choices'];
-              if (choices == null || choices.isEmpty) continue;
-              final delta = choices[0]['delta'];
-              if (delta == null) continue;
-              final content = delta['content'];
-              if (content == null || content.isEmpty) continue;
-              fullReply += content;
-              yield content;
-            } catch (e) {
-              developer.log('【LLM流式】解析单行失败: $e, 行内容: $line');
-            }
-          }
+          final delta = adapter.processLine(lines[i].trim());
+          if (delta != null && delta.isNotEmpty) yield delta;
         }
       }
 
+      // 收尾：缓冲区里未换行的最后一行
       final remaining = buffer.toString().trim();
-      if (remaining.startsWith('data: ') && remaining != 'data: [DONE]') {
-        try {
-          final json = jsonDecode(remaining.substring(6));
-          final content = json['choices']?[0]?['delta']?['content'];
-          if (content != null && content.isNotEmpty) {
-            fullReply += content;
-            yield content;
-          }
-        } catch (_) {}
+      if (remaining.isNotEmpty) {
+        final delta = adapter.processLine(remaining);
+        if (delta != null && delta.isNotEmpty) yield delta;
       }
 
-      if (fullReply.isNotEmpty) {
-        _history.add({'role': 'assistant', 'content': fullReply});
-      }
-    } on LlmException {
-      rethrow;
-    } catch (e) {
-      developer.log('【LLM流式错误】异常: $e');
-      throw LlmException('发生错误: $e');
-    } finally {
-      client.close();
-    }
-  }
-
-  /// 流式模式下，先通过非流式请求处理工具调用，再对最终回复做流式输出
-  Stream<String> _chatStreamWithTools(
-    List<Map<String, dynamic>> messages,
-    List<Map<String, dynamic>> tools, {
-    String? systemPrompt,
-  }) async* {
-    try {
-      final uri = Uri.parse('$_baseUrl/chat/completions');
-
-      // 第一步：非流式请求，检测是否有 tool_calls
-      final firstResponse = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': _model,
-          'messages': messages,
-          'max_tokens': _maxTokens,
-          'temperature': _temperature,
-          'tools': tools,
-        }),
-      ).timeout(const Duration(seconds: 60));
-
-      if (firstResponse.statusCode != 200) {
-        final summary = _summarizeBody(firstResponse.body);
-        developer.log('【Function Calling 流式】状态码: ${firstResponse.statusCode}, 响应: $summary');
-        throw LlmException('API调用失败（状态码: ${firstResponse.statusCode}）: $summary');
-      }
-
-      final firstData = jsonDecode(firstResponse.body);
-      final firstMessage = firstData['choices']?[0]?['message'];
-
-      if (firstMessage == null) {
-        yield '抱歉，AI返回了空内容。';
+      final toolCalls = adapter.buildToolCalls();
+      if (toolCalls.isNotEmpty && allowToolFollowUp) {
+        yield* _followUpAfterStreamTools(
+          adapter.fullReply.toString(),
+          toolCalls,
+          systemPrompt: systemPrompt,
+        );
         return;
       }
 
-      // 检查是否有 tool_calls
-      final toolCalls = firstMessage['tool_calls'] as List<dynamic>?;
-      if (toolCalls != null && toolCalls.isNotEmpty) {
-        developer.log('【Function Calling 流式】检测到 ${toolCalls.length} 个工具调用');
-
-        // 将 assistant 的 tool_calls 加入历史（保持原始 List 格式）
+      if (adapter.fullReply.isNotEmpty) {
         _history.add({
           'role': 'assistant',
-          'content': firstMessage['content'] ?? '',
-          'tool_calls': toolCalls,
+          'content': adapter.fullReply.toString(),
         });
-
-        // 执行所有工具调用
-        for (final toolCall in toolCalls) {
-          final function = toolCall['function'];
-          final toolName = function['name'] as String;
-          final argsStr = function['arguments'] as String;
-          final args = jsonDecode(argsStr) as Map<String, dynamic>;
-          final toolCallId = toolCall['id'] as String? ?? '';
-
-          developer.log('【Function Calling 流式】执行: $toolName');
-
-          final result = await FunctionTools.executeTool(toolName, args);
-
-          _history.add({
-            'role': 'tool',
-            'tool_call_id': toolCallId,
-            'content': result,
-          });
-        }
-
-        // 第二步：流式输出最终回复
-        final followUpMessages = [
-          {'role': 'system', 'content': systemPrompt ?? _systemPrompt},
-          ..._trimWindow(_history.length > 25 ? _history.sublist(_history.length - 25) : _history),
-        ];
-
-        yield* _streamChat(followUpMessages);
-        return;
-      }
-
-      // 无工具调用，直接流式输出
-      final content = firstMessage['content'] as String? ?? '';
-      if (content.isNotEmpty) {
-        _history.add({'role': 'assistant', 'content': content});
-        yield content;
-      }
-    } on LlmException {
-      rethrow;
-    } catch (e) {
-      developer.log('【Function Calling 流式】异常: $e');
-      throw LlmException('发生错误: $e');
-    }
-  }
-
-  /// 纯流式输出（用于 Function Calling 后的第二步）
-  Stream<String> _streamChat(List<Map<String, dynamic>> messages) async* {
-    final client = http.Client();
-    try {
-      final uri = Uri.parse('$_baseUrl/chat/completions');
-      final request = http.Request('POST', uri);
-      request.headers.addAll({
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_apiKey',
-      });
-      request.body = jsonEncode({
-        'model': _model,
-        'messages': messages,
-        'max_tokens': _maxTokens,
-        'temperature': _temperature,
-        'stream': true,
-      });
-
-      final response = await client.send(request).timeout(const Duration(seconds: 60));
-
-      if (response.statusCode != 200) {
-        final body = await response.stream.bytesToString();
-        final summary = _summarizeBody(body);
-        developer.log('【LLM流式错误】状态码: ${response.statusCode}, 内容: $summary');
-        throw LlmException('API调用失败（状态码: ${response.statusCode}）: $summary');
-      }
-
-      final buffer = StringBuffer();
-      String fullReply = '';
-
-      await for (final chunk in response.stream.transform(utf8.decoder)) {
-        buffer.write(chunk);
-        final text = buffer.toString();
-        final lines = text.split('\n');
-        buffer.clear();
-        if (lines.isNotEmpty) buffer.write(lines.last);
-
-        for (int i = 0; i < lines.length - 1; i++) {
-          final line = lines[i].trim();
-          if (line.isEmpty || line == 'data: [DONE]') continue;
-          if (line.startsWith('data: ')) {
-            try {
-              final jsonStr = line.substring(6);
-              final json = jsonDecode(jsonStr);
-              final content = json['choices']?[0]?['delta']?['content'];
-              if (content != null && content.isNotEmpty) {
-                fullReply += content;
-                yield content;
-              }
-            } catch (_) {}
-          }
-        }
-      }
-
-      if (fullReply.isNotEmpty) {
-        _history.add({'role': 'assistant', 'content': fullReply});
       }
     } on LlmException {
       rethrow;
@@ -536,6 +395,46 @@ class LlmService {
     } finally {
       client.close();
     }
+  }
+
+  /// 流式响应中出现 tool_calls 时的跟进：写历史 → 执行工具 → 流式输出最终回复
+  Stream<String> _followUpAfterStreamTools(
+    String reply,
+    List<Map<String, dynamic>> toolCalls, {
+    String? systemPrompt,
+  }) async* {
+    developer.log('【LLM流式】检测到 ${toolCalls.length} 个工具调用，执行后跟进');
+
+    _history.add({
+      'role': 'assistant',
+      'content': reply,
+      'tool_calls': toolCalls,
+    });
+
+    for (final toolCall in toolCalls) {
+      final function = toolCall['function'];
+      final toolName = function['name'] as String;
+      final argsStr = function['arguments'] as String;
+      final args = jsonDecode(argsStr) as Map<String, dynamic>;
+      final toolCallId = toolCall['id'] as String? ?? '';
+
+      developer.log('【LLM流式】执行: $toolName($argsStr)');
+
+      final result = await FunctionTools.executeTool(toolName, args);
+
+      _history.add({
+        'role': 'tool',
+        'tool_call_id': toolCallId,
+        'content': result,
+      });
+    }
+
+    final followUpMessages = [
+      {'role': 'system', 'content': systemPrompt ?? _systemPrompt},
+      ..._trimWindow(_history.length > 25 ? _history.sublist(_history.length - 25) : _history),
+    ];
+
+    yield* _streamRequest(followUpMessages, systemPrompt: systemPrompt, allowToolFollowUp: false);
   }
 
   /// 情绪分析：调用大模型做结构化7维度分析
@@ -578,29 +477,19 @@ Result: （上面要求的JSON格式）''';
     }
 
     try {
-      final uri = Uri.parse('$_baseUrl/chat/completions');
-      final response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': _model,
-          'messages': [
-            {'role': 'system', 'content': analyzePrompt},
-            {'role': 'user', 'content': '请分析以下倾诉内容：\n$text'},
-          ],
-          'max_tokens': 2048,
-          'temperature': 0.3,
-        }),
-      ).timeout(const Duration(seconds: 60));
+      final resp = await _complete(
+        messages: [
+          {'role': 'system', 'content': analyzePrompt},
+          {'role': 'user', 'content': '请分析以下倾诉内容：\n$text'},
+        ],
+        maxTokens: 2048,
+        temperature: 0.3,
+      );
 
-      developer.log('【情绪分析】状态码: ${response.statusCode}');
+      developer.log('【情绪分析】状态码: ${resp.statusCode}');
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final reply = data['choices']?[0]?['message']?['content'] as String?;
+      if (resp.statusCode == 200) {
+        final reply = resp.message?['content'] as String?;
         if (reply == null || reply.isEmpty) return null;
 
         String jsonStr = reply.trim();
@@ -620,7 +509,7 @@ Result: （上面要求的JSON格式）''';
         developer.log('【情绪分析】结果: $result');
         return result;
       } else {
-        developer.log('【情绪分析】失败: ${response.body}');
+        developer.log('【情绪分析】失败: ${resp.body}');
         return null;
       }
     } catch (e) {
@@ -721,27 +610,17 @@ Result: （上面要求的JSON格式）''';
 4. 在回复末尾添加一小段总结性的温暖话语，用"---"分隔线隔开''';
 
     try {
-      final uri = Uri.parse('$_baseUrl/chat/completions');
-      final response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': _model,
-          'messages': [
-            {'role': 'system', 'content': dreamPrompt},
-            {'role': 'user', 'content': '请解读以下梦境：\n$dreamText'},
-          ],
-          'max_tokens': 3072,
-          'temperature': 0.5,
-        }),
-      ).timeout(const Duration(seconds: 60));
+      final resp = await _complete(
+        messages: [
+          {'role': 'system', 'content': dreamPrompt},
+          {'role': 'user', 'content': '请解读以下梦境：\n$dreamText'},
+        ],
+        maxTokens: 3072,
+        temperature: 0.5,
+      );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final reply = data['choices']?[0]?['message']?['content'] as String?;
+      if (resp.statusCode == 200) {
+        final reply = resp.message?['content'] as String?;
         if (reply == null || reply.isEmpty) return null;
 
         String result = reply.trim();
@@ -780,27 +659,18 @@ Result: （上面要求的JSON格式）''';
     const prompt = '根据以下对话内容，生成一个10字以内的简短标题，直接返回标题文字，不要引号、标点或额外说明。';
 
     try {
-      final uri = Uri.parse('$_baseUrl/chat/completions');
-      final response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': _model,
-          'messages': [
-            {'role': 'system', 'content': prompt},
-            {'role': 'user', 'content': '用户：$userMessage\nAI：${aiReply.length > 200 ? aiReply.substring(0, 200) : aiReply}'},
-          ],
-          'max_tokens': 32,
-          'temperature': 0.5,
-        }),
-      ).timeout(const Duration(seconds: 15));
+      final result = await _complete(
+        messages: [
+          {'role': 'system', 'content': prompt},
+          {'role': 'user', 'content': '用户：$userMessage\nAI：${aiReply.length > 200 ? aiReply.substring(0, 200) : aiReply}'},
+        ],
+        maxTokens: 32,
+        temperature: 0.5,
+        timeout: const Duration(seconds: 15),
+      );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final title = data['choices']?[0]?['message']?['content'] as String?;
+      if (result.statusCode == 200) {
+        final title = result.message?['content'] as String?;
         if (title != null && title.trim().isNotEmpty) {
           return title.trim().length > 15 ? title.trim().substring(0, 15) : title.trim();
         }
@@ -809,44 +679,35 @@ Result: （上面要求的JSON格式）''';
     return userMessage.length > 15 ? '${userMessage.substring(0, 15)}…' : userMessage;
   }
 
-  /// 测试连接
+  /// 测试连接（双格式：OpenAI 兼容走 /chat/completions，Anthropic 原生走 /v1/messages）
   Future<(bool, String)> testConnection({
     required String baseUrl,
     required String apiKey,
     required String model,
+    String apiFormat = LlmApiAdapter.formatOpenai,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/chat/completions');
-      final response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiKey',
-        },
-        body: jsonEncode({
-          'model': model,
-          'messages': [
-            {'role': 'user', 'content': 'Hi'},
-          ],
-          'max_tokens': 16,
-          'temperature': 0,
-        }),
-      ).timeout(const Duration(seconds: 15));
+      final result = await _complete(
+        messages: [
+          {'role': 'user', 'content': 'Hi'},
+        ],
+        maxTokens: 16,
+        temperature: 0,
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        model: model,
+        apiFormat: apiFormat,
+        timeout: const Duration(seconds: 15),
+      );
 
-      if (response.statusCode == 200) {
+      if (result.statusCode == 200) {
         return (true, '连接成功，大模型响应正常');
       } else {
-        String errorDetail;
-        try {
-          final errorJson = jsonDecode(response.body);
-          errorDetail = errorJson['error']?['message'] ?? errorJson['message'] ?? response.body;
-        } catch (_) {
-          errorDetail = response.body;
-        }
-        return (false, '连接失败 (状态码: ${response.statusCode})\n$errorDetail');
+        final errorDetail = LlmApiAdapter.extractErrorMessage(result.body);
+        return (false, '连接失败 (状态码: ${result.statusCode})\n$errorDetail');
       }
     } on FormatException {
-      return (false, '响应格式异常，请确认 API 为 OpenAI 兼容格式');
+      return (false, '响应格式异常，请确认 API 地址与所选 API 格式匹配');
     } on Exception catch (e) {
       return (false, '网络连接失败，请检查 API 地址是否正确\n$e');
     } catch (e) {

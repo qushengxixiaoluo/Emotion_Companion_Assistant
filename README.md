@@ -190,8 +190,6 @@ lib/
 │   ├── speech_params_dialog.dart       # 语音参数弹窗（语速/音量/音调）
 │   ├── emotion_radar.dart              # 情绪雷达图（CustomPaint）
 │   ├── heartbeat_breath_button.dart    # 呼吸粒子动画按钮
-│   ├── fortune_draw.dart               # 每日抽签
-│   ├── fortune_calendar.dart           # 签到日历
 │   └── app_splash.dart                 # 启动闪屏动画
 ├── services/
 │   ├── llm_service.dart                # 大模型 API（对话/流式/情绪分析/梦境解读）

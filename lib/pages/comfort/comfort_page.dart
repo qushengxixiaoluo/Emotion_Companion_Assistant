@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:audioplayers/audioplayers.dart';
+import '../../app/styles/app_styles.dart';
 import '../../app/themes/app_colors.dart';
 import '../../app/responsive/responsive_utils.dart';
 import '../../app/config/speech_config.dart';
@@ -12,6 +13,9 @@ import '../../services/agents/orchestrator.dart';
 import '../../services/speech_service.dart';
 import '../../services/storage_service.dart';
 import '../../models/emotion_models.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/lowpoly_background.dart';
+import '../../widgets/lowpoly_decor.dart';
 import '../../widgets/unified_config_dialog.dart';
 import '../../widgets/llm_profile_manager_dialog.dart';
 import '../../widgets/speech_params_dialog.dart';
@@ -221,7 +225,7 @@ class ComfortPageState extends State<ComfortPage> {
         style: TextStyle(
           fontSize: 10.5,
           fontWeight: FontWeight.w600,
-          color: AppColors.textHint.withValues(alpha: 0.45),
+          color: Theme.of(context).colorScheme.onSurface,
           letterSpacing: 0.8,
           height: 1,
         ),
@@ -250,7 +254,7 @@ class ComfortPageState extends State<ComfortPage> {
               color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(icon, size: 17, color: color),
+            child: Icon(icon, size: 17, color: Theme.of(context).colorScheme.onSurface),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -265,7 +269,7 @@ class ComfortPageState extends State<ComfortPage> {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: TextStyle(fontSize: 11, color: AppColors.textHint.withValues(alpha: 0.7), height: 1.2),
+                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface, height: 1.2),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -275,7 +279,7 @@ class ComfortPageState extends State<ComfortPage> {
           if (selected)
             Padding(
               padding: const EdgeInsets.only(left: 8),
-              child: Icon(Icons.check_circle, size: 16, color: color),
+              child: Icon(Icons.check_circle, size: 16, color: Theme.of(context).colorScheme.onSurface),
             ),
         ],
       ),
@@ -499,9 +503,14 @@ class ComfortPageState extends State<ComfortPage> {
     _saveCurrentConversation();
   }
 
-  /// 计算下一块显示的字数，模拟人类逐词/逐句打字的节奏
+  /// 计算下一块显示的字数，模拟人类逐词/逐句打字的节奏。
+  /// 缓冲积压多（网络快于显示）时追帧加速，避免显示节流把体感拖慢。
   int _nextChunkSize(String text, int pos) {
     if (pos >= text.length) return 0;
+    final backlog = text.length - pos;
+    if (backlog > 80) return 12;
+    if (backlog > 40) return 6;
+    if (backlog > 20) return 3;
     int size = 0;
     while (pos + size < text.length) {
       final char = text[pos + size];
@@ -592,9 +601,7 @@ class ComfortPageState extends State<ComfortPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Text('系统语音合成失败'),
-              backgroundColor: AppColors.softOrange,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
           );
         }
@@ -619,9 +626,7 @@ class ComfortPageState extends State<ComfortPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Text('语音合成失败，请检查API配置'),
-              backgroundColor: AppColors.softOrange,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
           );
         }
@@ -642,24 +647,15 @@ class ComfortPageState extends State<ComfortPage> {
   }
 
   Widget _buildMobileChatLayout() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientColors = isDark
-        ? [AppColors.softPink.withValues(alpha: 0.06), AppColors.darkBackground]
-        : [AppColors.softPink.withValues(alpha: 0.04), AppColors.background];
-
     final showWelcomeCard = _messages.isEmpty;
 
     return Scaffold(
       key: _scaffoldKey,
       appBar: _buildAppBar(),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: gradientColors,
-          ),
-        ),
+      body: LowPolyBackground(
+        tint: AppColors.softPink,
+        tintAlpha: 0.04,
+        tintAlphaDark: 0.06,
         child: Column(
           children: [
             _buildEmotionStatusBar(),
@@ -691,11 +687,6 @@ class ComfortPageState extends State<ComfortPage> {
   }
 
   Widget _buildDesktopChatLayout() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientColors = isDark
-        ? [AppColors.softPink.withValues(alpha: 0.06), AppColors.darkBackground]
-        : [AppColors.softPink.withValues(alpha: 0.04), AppColors.background];
-
     final showWelcomeCard = _messages.isEmpty;
 
     return Scaffold(
@@ -711,8 +702,8 @@ class ComfortPageState extends State<ComfortPage> {
               decoration: BoxDecoration(
                 border: Border(
                   right: BorderSide(
-                    color: AppColors.hazeBlue.withValues(alpha: 0.08),
-                    width: 1,
+                    color: AppStroke.inkOf(context),
+                    width: 2,
                   ),
                 ),
               ),
@@ -720,14 +711,10 @@ class ComfortPageState extends State<ComfortPage> {
             ),
           ],
           Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: gradientColors,
-                ),
-              ),
+            child: LowPolyBackground(
+              tint: AppColors.softPink,
+              tintAlpha: 0.04,
+              tintAlphaDark: 0.06,
               child: Column(
                 children: [
                   _buildEmotionStatusBar(),
@@ -773,7 +760,7 @@ class ComfortPageState extends State<ComfortPage> {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: IconButton(
-                icon: Icon(_showConversationPanel ? Icons.menu_open : Icons.menu, size: 20, color: themeColor),
+                icon: Icon(_showConversationPanel ? Icons.menu_open : Icons.menu, size: 20, color: Theme.of(context).colorScheme.onSurface),
                 onPressed: onMenuTap ?? () => _scaffoldKey.currentState?.openEndDrawer(),
                 tooltip: '对话记录',
               ),
@@ -791,7 +778,7 @@ class ComfortPageState extends State<ComfortPage> {
             _useLlm ? (_useStream ? '实时流式 · 智能编排' : '打字机 · 智能编排') : '本地模式 · 打字机',
             style: TextStyle(
               fontSize: 11,
-              color: themeColor.withValues(alpha: 0.55),
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ],
@@ -810,13 +797,12 @@ class ComfortPageState extends State<ComfortPage> {
             offset: const Offset(0, 48),
             elevation: 12,
             color: Theme.of(context).colorScheme.surface,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             padding: const EdgeInsets.all(8),
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
             icon: Icon(
               Icons.settings_outlined,
               size: 18,
-              color: themeColor,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
             onSelected: _onPopupMenuSelected,
             itemBuilder: (context) => [
@@ -824,14 +810,14 @@ class ComfortPageState extends State<ComfortPage> {
               _buildSettingItem(
                 value: 'toggle_llm',
                 icon: _useLlm ? Icons.cloud_outlined : Icons.psychology_outlined,
-                color: AppColors.hazeBlue,
+                color: Theme.of(context).colorScheme.onSurface,
                 title: _useLlm ? '大模型模式' : '本地预设模式',
                 subtitle: _useLlm ? '点击切换到本地' : '点击切换到大模型',
               ),
               _buildSettingItem(
                 value: 'toggle_stream',
                 icon: _useStream ? Icons.bolt : Icons.text_snippet_outlined,
-                color: AppColors.calmGreen,
+                color: Theme.of(context).colorScheme.onSurface,
                 title: _useStream ? '实时流式输出' : '打字机模式',
                 subtitle: _useStream ? '点击切换打字机' : '点击切换流式',
               ),
@@ -840,14 +826,14 @@ class ComfortPageState extends State<ComfortPage> {
               _buildSettingItem(
                 value: 'voice',
                 icon: Icons.record_voice_over,
-                color: AppColors.gentlePurple,
+                color: Theme.of(context).colorScheme.onSurface,
                 title: '朗读音色',
                 subtitle: _ttsVoiceDisplayName,
               ),
               _buildSettingItem(
                 value: 'speech_params',
                 icon: Icons.tune,
-                color: AppColors.softOrange,
+                color: Theme.of(context).colorScheme.onSurface,
                 title: '语音参数',
                 subtitle: '语速与音量调节',
               ),
@@ -856,14 +842,14 @@ class ComfortPageState extends State<ComfortPage> {
               _buildSettingItem(
                 value: 'llm_profiles',
                 icon: Icons.tune,
-                color: AppColors.calmGreen,
+                color: Theme.of(context).colorScheme.onSurface,
                 title: '模型配置',
                 subtitle: '多套配置管理与切换',
               ),
               _buildSettingItem(
                 value: 'api_config',
                 icon: Icons.api,
-                color: AppColors.hazeBlue,
+                color: Theme.of(context).colorScheme.onSurface,
                 title: 'API 配置',
                 subtitle: '大模型 & 语音合成',
               ),
@@ -880,12 +866,10 @@ class ComfortPageState extends State<ComfortPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('请先配置大模型 API 后再切换'),
-            backgroundColor: AppColors.softOrange,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             action: SnackBarAction(
               label: '去配置',
-              textColor: Colors.white,
+              textColor: Theme.of(context).colorScheme.onSurface,
               onPressed: () {
                 showUnifiedConfigDialog(context).then((_) async {
                   _llmService.reloadConfig();
@@ -905,9 +889,7 @@ class ComfortPageState extends State<ComfortPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_useLlm ? '已切换到大模型模式' : '已切换到本地预设模式'),
-          backgroundColor: AppColors.hazeBlue,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } else if (value == 'toggle_stream') {
@@ -915,9 +897,7 @@ class ComfortPageState extends State<ComfortPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_useStream ? '已开启流式输出（API实时推送）' : '已关闭流式（打字机效果）'),
-          backgroundColor: AppColors.hazeBlue,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } else if (value == 'llm_profiles') {
@@ -961,7 +941,7 @@ class ComfortPageState extends State<ComfortPage> {
         borderRadius: BorderRadius.circular(10),
       ),
       child: IconButton(
-        icon: Icon(icon, size: 18, color: themeColor),
+        icon: Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurface),
         onPressed: onPressed,
         tooltip: tooltip,
         padding: const EdgeInsets.all(8),
@@ -1001,7 +981,7 @@ class ComfortPageState extends State<ComfortPage> {
                 child: Icon(
                   hasEmotion ? Icons.favorite_outline : Icons.cloud_outlined,
                   size: 16,
-                  color: color,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               const SizedBox(width: 12),
@@ -1014,7 +994,7 @@ class ComfortPageState extends State<ComfortPage> {
                           : '本地模式 · 打字机 · 随时倾诉'),
                   style: TextStyle(
                     fontSize: 13,
-                    color: color,
+                    color: Theme.of(context).colorScheme.onSurface,
                     height: 1.4,
                   ),
                 ),
@@ -1041,20 +1021,23 @@ class ComfortPageState extends State<ComfortPage> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
                 color: AppColors.softOrange.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.softOrange.withValues(alpha: 0.15)),
+                borderRadius: AppRadius.smB,
+                border: Border.all(
+                  color: AppStroke.inkOf(context),
+                  width: AppStroke.thin,
+                ),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.settings_outlined, size: 14, color: AppColors.softOrange),
+                  Icon(Icons.settings_outlined, size: 14, color: Theme.of(context).colorScheme.onSurface),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '请配置大模型服务以使用 AI 对话功能',
-                      style: TextStyle(fontSize: 12, color: AppColors.softOrange.withValues(alpha: 0.8)),
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface),
                     ),
                   ),
-                  Icon(Icons.chevron_right, size: 16, color: AppColors.softOrange.withValues(alpha: 0.5)),
+                  Icon(Icons.chevron_right, size: 16, color: Theme.of(context).colorScheme.onSurface),
                 ],
               ),
             ),
@@ -1068,37 +1051,34 @@ class ComfortPageState extends State<ComfortPage> {
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       children: [
-        Container(
+        AppCard(
           padding: const EdgeInsets.all(32),
-          decoration: BoxDecoration(
-            color: AppColors.softPink.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.softPink.withValues(alpha: 0.1)),
-          ),
+          color: AppColors.softPink.withValues(alpha: 0.06),
+          radius: AppRadius.dialog,
+          hardShadow: false,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // 大图标
-              Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      AppColors.softPink.withValues(alpha: 0.25),
-                      AppColors.softPink.withValues(alpha: 0.08),
-                    ],
+              // 大图标：几何碎片底座
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  GeometricShard(
+                    color: AppColors.softPink,
+                    size: 88,
+                    sides: 6,
+                    fillAlpha: 0.22,
+                    strokeWidth: AppStroke.thin,
                   ),
-                ),
-                child: const Icon(Icons.favorite_outline, size: 40, color: AppColors.softPink),
+                  Icon(Icons.favorite_outline, size: 40, color: Theme.of(context).colorScheme.onSurface),
+                ],
               ),
               const SizedBox(height: 28),
               // 诗意欢迎文字
               Text(
                 '你好呀',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AppColors.softPink,
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.w600,
                     ),
               ),
@@ -1111,7 +1091,7 @@ class ComfortPageState extends State<ComfortPage> {
               Text(
                 '无论开心还是难过，我都在这里陪你',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.softPink.withValues(alpha: 0.55),
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
               ),
               const SizedBox(height: 20),
@@ -1119,7 +1099,7 @@ class ComfortPageState extends State<ComfortPage> {
               Text(
                 '~ ~ ~',
                 style: TextStyle(
-                  color: AppColors.softPink.withValues(alpha: 0.18),
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 16,
                   letterSpacing: 8,
                 ),
@@ -1129,7 +1109,7 @@ class ComfortPageState extends State<ComfortPage> {
                 '想说什么都可以告诉我',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       fontStyle: FontStyle.italic,
-                      color: AppColors.hazeBlue.withValues(alpha: 0.45),
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
               ),
             ],
@@ -1146,7 +1126,7 @@ class ComfortPageState extends State<ComfortPage> {
         child: Text(
           '·',
           style: TextStyle(
-            color: AppColors.softPink.withValues(alpha: 0.18),
+            color: Theme.of(context).colorScheme.onSurface,
             fontSize: 18,
           ),
         ),
@@ -1183,8 +1163,8 @@ class ComfortPageState extends State<ComfortPage> {
                   bottomRight: Radius.circular(4),
                 ),
                 border: Border.all(
-                  color: AppColors.hazeBlue.withValues(alpha: 0.15),
-                  width: 0.5,
+                  color: AppStroke.inkOf(context),
+                  width: AppStroke.thin,
                 ),
               ),
               child: Text(
@@ -1206,22 +1186,14 @@ class ComfortPageState extends State<ComfortPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // AI 头像 - 渐变圆形
+          // AI 头像 - 平涂圆 + 2px ink 描边
           Container(
             width: 36,
             height: 36,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [AppColors.softPink, AppColors.hazeBlue],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.softPink.withValues(alpha: 0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              color: AppColors.softPink,
+              border: Border.all(color: AppStroke.inkOf(context), width: 2),
             ),
             child: const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
           ),
@@ -1240,20 +1212,18 @@ class ComfortPageState extends State<ComfortPage> {
                   bottomRight: Radius.circular(18),
                 ),
                 border: Border(
+                  // 左侧 3px 强调条保留（错误态语义色），其余三边 1.5px ink
                   left: BorderSide(
                     color: msg.isError
-                        ? AppColors.softPink.withValues(alpha: 0.7)
-                        : AppColors.softPink.withValues(alpha: 0.45),
+                        ? AppColors.softPink.withValues(alpha: 0.9)
+                        : AppColors.softPink,
                     width: 3,
                   ),
+                  top: BorderSide(color: AppStroke.inkOf(context), width: AppStroke.thin),
+                  right: BorderSide(color: AppStroke.inkOf(context), width: AppStroke.thin),
+                  bottom: BorderSide(color: AppStroke.inkOf(context), width: AppStroke.thin),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 14,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
+                boxShadow: AppShadow.hard(context, dy: 3),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1272,7 +1242,6 @@ class ComfortPageState extends State<ComfortPage> {
                       styleSheet: MarkdownStyleSheet(
                         p: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               height: 1.7,
-                              color: msg.isError ? AppColors.softPink : null,
                             ),
                         h1: Theme.of(context).textTheme.titleLarge,
                         h2: Theme.of(context).textTheme.titleMedium,
@@ -1291,7 +1260,10 @@ class ComfortPageState extends State<ComfortPage> {
                         codeblockDecoration: BoxDecoration(
                           color: AppColors.hazeBlue.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.divider, width: 0.5),
+                          border: Border.all(
+                            color: AppStroke.inkOf(context).withValues(alpha: 0.35),
+                            width: AppStroke.hairline,
+                          ),
                         ),
                         blockquoteDecoration: BoxDecoration(
                           color: AppColors.softPink.withValues(alpha: 0.04),
@@ -1348,7 +1320,7 @@ class ComfortPageState extends State<ComfortPage> {
                                   : Icons.volume_up_outlined,
                               size: 16,
                               color: _playingMessageIndex == '$index'
-                                  ? AppColors.softPink
+                                  ? Theme.of(context).colorScheme.onSurface
                                   : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
                             ),
                           ),
@@ -1397,7 +1369,7 @@ class ComfortPageState extends State<ComfortPage> {
           '正在思考中',
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 fontSize: 11,
-                color: AppColors.softPink.withValues(alpha: 0.5),
+                color: Theme.of(context).colorScheme.onSurface,
               ),
         ),
       ],
@@ -1428,9 +1400,10 @@ class ComfortPageState extends State<ComfortPage> {
               child: Container(
                 constraints: const BoxConstraints(maxHeight: 100),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: AppRadius.smB,
                   border: Border.all(
-                    color: AppColors.softPink.withValues(alpha: 0.15),
+                    color: AppStroke.inkOf(context),
+                    width: AppStroke.standard,
                   ),
                 ),
                 child: TextField(
@@ -1443,20 +1416,18 @@ class ComfortPageState extends State<ComfortPage> {
                     hintStyle: Theme.of(context).textTheme.bodySmall,
                     filled: true,
                     fillColor: isDark ? AppColors.darkInputFill : AppColors.milkWhite,
+                    // 外壳已带 2px ink 描边，内部保持无边框；聚焦时内圈提示
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: AppRadius.smB,
                       borderSide: BorderSide.none,
                     ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: AppRadius.smB,
                       borderSide: BorderSide.none,
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                        color: AppColors.softPink.withValues(alpha: 0.4),
-                        width: 1,
-                      ),
+                      borderRadius: AppRadius.smB,
+                      borderSide: BorderSide.none,
                     ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   ),
@@ -1474,9 +1445,6 @@ class ComfortPageState extends State<ComfortPage> {
                   foregroundColor: Colors.white,
                   disabledBackgroundColor: AppColors.softPink.withValues(alpha: 0.3),
                   padding: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
                 ),
                 child: _isLoading
                     ? SizedBox(
@@ -1549,7 +1517,7 @@ class ComfortPageState extends State<ComfortPage> {
                         '${_conversations.length}',
                         style: TextStyle(
                           fontSize: 12,
-                          color: AppColors.softPink.withValues(alpha: 0.6),
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                     ),
@@ -1567,11 +1535,11 @@ class ComfortPageState extends State<ComfortPage> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.add, size: 16, color: AppColors.softPink),
+                          Icon(Icons.add, size: 16, color: Theme.of(context).colorScheme.onSurface),
                           const SizedBox(width: 4),
                           Text(
                             '新建',
-                            style: TextStyle(fontSize: 13, color: AppColors.softPink),
+                            style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
                           ),
                         ],
                       ),
@@ -1600,9 +1568,6 @@ class ComfortPageState extends State<ComfortPage> {
                           ),
                           child: ListTile(
                             selected: isActive,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
                             title: Text(
                               conv.title,
                               maxLines: 1,
@@ -1610,7 +1575,7 @@ class ComfortPageState extends State<ComfortPage> {
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                                color: isActive ? AppColors.softPink : null,
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
                             subtitle: Text(
@@ -1651,7 +1616,7 @@ class ComfortPageState extends State<ComfortPage> {
             Icon(
               Icons.chat_bubble_outline,
               size: 44,
-              color: AppColors.softPink.withValues(alpha: 0.22),
+              color: Theme.of(context).colorScheme.onSurface,
             ),
             const SizedBox(height: 16),
             Text(
@@ -1663,7 +1628,7 @@ class ComfortPageState extends State<ComfortPage> {
               '开始倾诉，每一段心语都会被温柔珍藏',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontSize: 12,
-                    color: AppColors.softPink.withValues(alpha: 0.4),
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
             ),
           ],
@@ -1722,7 +1687,6 @@ class ComfortPageState extends State<ComfortPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Container(
@@ -1731,7 +1695,7 @@ class ComfortPageState extends State<ComfortPage> {
                 color: AppColors.softPink.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.delete_outline, size: 18, color: AppColors.softPink),
+              child: Icon(Icons.delete_outline, size: 18, color: Theme.of(context).colorScheme.onSurface),
             ),
             const SizedBox(width: 8),
             const Text('删除对话'),
@@ -1742,7 +1706,7 @@ class ComfortPageState extends State<ComfortPage> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('删除', style: TextStyle(color: AppColors.softPink)),
+            child: Text('删除', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),
@@ -1779,7 +1743,6 @@ class ComfortPageState extends State<ComfortPage> {
       builder: (ctx) => SimpleDialog(
         surfaceTintColor: Colors.transparent,
         backgroundColor: Theme.of(context).colorScheme.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Container(
@@ -1788,7 +1751,7 @@ class ComfortPageState extends State<ComfortPage> {
                 color: AppColors.softPink.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.record_voice_over, size: 18, color: AppColors.softPink),
+              child: Icon(Icons.record_voice_over, size: 18, color: Theme.of(context).colorScheme.onSurface),
             ),
             const SizedBox(width: 8),
             Text(isSystem ? '选择系统语音' : '选择朗读音色'),
@@ -1807,11 +1770,11 @@ class ComfortPageState extends State<ComfortPage> {
                     name,
                     style: TextStyle(
                       fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                      color: isSelected ? AppColors.softPink : null,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                   subtitle: locale.isNotEmpty ? Text(locale, style: const TextStyle(fontSize: 11)) : null,
-                  activeColor: AppColors.softPink,
+                  activeColor: Theme.of(context).colorScheme.onSurface,
                   onChanged: (val) async {
                     if (val != null && val != _ttsVoiceType) {
                       if (isSystem) {
@@ -1830,11 +1793,11 @@ class ComfortPageState extends State<ComfortPage> {
                   padding: const EdgeInsets.all(32),
                   child: Column(
                     children: [
-                      Icon(Icons.info_outline, size: 32, color: AppColors.textHint.withValues(alpha: 0.3)),
+                      Icon(Icons.info_outline, size: 32, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45)),
                       const SizedBox(height: 12),
                       Text(
                         isSystem ? '未检测到系统语音' : '无可用音色',
-                        style: TextStyle(color: AppColors.textHint.withValues(alpha: 0.5)),
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
                       ),
                     ],
                   ),
@@ -1850,7 +1813,6 @@ class ComfortPageState extends State<ComfortPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           title: Row(
             children: [
               Container(
@@ -1859,7 +1821,7 @@ class ComfortPageState extends State<ComfortPage> {
                   color: AppColors.softPink.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.self_improvement, color: AppColors.softPink, size: 18),
+                child: Icon(Icons.self_improvement, color: Theme.of(context).colorScheme.onSurface, size: 18),
               ),
               const SizedBox(width: 8),
               const Text('深呼吸引导'),
@@ -1870,35 +1832,27 @@ class ComfortPageState extends State<ComfortPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // 渐变圆环装饰
-                Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        AppColors.softPink.withValues(alpha: 0.15),
-                        AppColors.softPink.withValues(alpha: 0.04),
-                      ],
+                // 同心六边形环装饰（替换原双层光晕圆）
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    GeometricShard(
+                      color: AppColors.softPink,
+                      size: 120,
+                      sides: 6,
+                      fillAlpha: 0.14,
+                      strokeWidth: AppStroke.thin,
                     ),
-                  ),
-                  child: Center(
-                    child: Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          colors: [
-                            AppColors.softPink.withValues(alpha: 0.25),
-                            AppColors.softPink.withValues(alpha: 0.08),
-                          ],
-                        ),
-                      ),
-                      child: const Icon(Icons.air, color: AppColors.softPink, size: 32),
+                    GeometricShard(
+                      color: AppColors.softPink,
+                      size: 80,
+                      sides: 6,
+                      rotation: 0.5236, // 30°，与外环错开
+                      fillAlpha: 0.22,
+                      strokeWidth: AppStroke.thin,
                     ),
-                  ),
+                    Icon(Icons.air, color: Theme.of(context).colorScheme.onSurface, size: 32),
+                  ],
                 ),
                 const SizedBox(height: 20),
                 Text(
@@ -1916,7 +1870,7 @@ class ComfortPageState extends State<ComfortPage> {
             ),
             TextButton(
               onPressed: () => setDialogState(() => step++),
-              child: Text('下一步', style: TextStyle(color: AppColors.softPink)),
+              child: Text('下一步', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
             ),
           ],
         ),
@@ -1928,7 +1882,6 @@ class ComfortPageState extends State<ComfortPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Row(
           children: [
             Container(
@@ -1937,7 +1890,7 @@ class ComfortPageState extends State<ComfortPage> {
                 color: AppColors.gentlePurple.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.nightlight, color: AppColors.gentlePurple, size: 18),
+              child: Icon(Icons.nightlight, color: Theme.of(context).colorScheme.onSurface, size: 18),
             ),
             const SizedBox(width: 8),
             const Text('晚安'),
@@ -1951,7 +1904,7 @@ class ComfortPageState extends State<ComfortPage> {
               child: Icon(
                 Icons.nightlight_round,
                 size: 32,
-                color: AppColors.gentlePurple.withValues(alpha: 0.25),
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
             const SizedBox(height: 16),
@@ -1966,7 +1919,7 @@ class ComfortPageState extends State<ComfortPage> {
               child: Text(
                 '~ ~ ~',
                 style: TextStyle(
-                  color: AppColors.gentlePurple.withValues(alpha: 0.18),
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 14,
                   letterSpacing: 6,
                 ),
@@ -1977,7 +1930,7 @@ class ComfortPageState extends State<ComfortPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('晚安', style: TextStyle(color: AppColors.gentlePurple)),
+            child: Text('晚安', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
           ),
         ],
       ),

@@ -1,10 +1,16 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../app/styles/app_styles.dart';
+import '../../app/styles/ui_style.dart';
 import '../../app/themes/app_colors.dart';
 import '../../app/responsive/adaptive_content_wrapper.dart';
 import '../../services/storage_service.dart';
 import '../../models/emotion_models.dart';
+import '../../widgets/app_card.dart';
 import '../../widgets/emotion_radar.dart';
+import '../../widgets/lowpoly_background.dart';
 
 class AnalysisPage extends StatefulWidget {
   const AnalysisPage({super.key});
@@ -53,20 +59,12 @@ class _AnalysisPageState extends State<AnalysisPage> {
   @override
   Widget build(BuildContext context) {
     final latestRecord = _targetRecord;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientColors = isDark
-        ? [AppColors.lightCyan.withValues(alpha: 0.1), AppColors.darkBackground]
-        : [AppColors.lightCyan.withValues(alpha: 0.06), AppColors.background];
 
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: gradientColors,
-          ),
-        ),
+      body: LowPolyBackground(
+        tint: AppColors.lightCyan,
+        tintAlpha: 0.06,
+        tintAlphaDark: 0.1,
         child: SafeArea(
           child: AdaptiveContentWrapper(
             child: CustomScrollView(
@@ -113,7 +111,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
       title: Text(
         '情绪分析报告',
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: AppColors.hazeBlue,
+              color: Theme.of(context).colorScheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
       ),
@@ -125,37 +123,30 @@ class _AnalysisPageState extends State<AnalysisPage> {
   }
 
   Widget _buildEmptyState() {
-    return Container(
-      width: double.infinity,
+    return AppCard(
+      color: Theme.of(context).cardColor.withValues(alpha: 0.4),
       margin: const EdgeInsets.symmetric(vertical: 32),
       padding: const EdgeInsets.symmetric(vertical: 48),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.lightCyan.withValues(alpha: 0.1),
-          width: 1,
-        ),
-      ),
+      hardShadow: false,
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: AppColors.lightCyan.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: AppRadius.mdB,
             ),
             child: Icon(
               Icons.analytics_outlined,
               size: 40,
-              color: AppColors.lightCyan.withValues(alpha: 0.5),
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 16),
           Text(
             '还没有情绪数据',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
           const SizedBox(height: 8),
@@ -169,25 +160,8 @@ class _AnalysisPageState extends State<AnalysisPage> {
   }
 
   Widget _buildEmotionRadarCard(EmotionRecord record) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.lightCyan.withValues(alpha: 0.1),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.lightCyan.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+    return AppCard(
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -205,12 +179,12 @@ class _AnalysisPageState extends State<AnalysisPage> {
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
                     color: AppColors.lightCyan.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: AppRadius.smB,
                   ),
                   child: Icon(
                     Icons.radar,
                     size: 16,
-                    color: AppColors.lightCyan,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -231,31 +205,13 @@ class _AnalysisPageState extends State<AnalysisPage> {
               ),
             ),
           ],
-        ),
       ),
     );
   }
 
   Widget _buildEmotionDimensionCard(EmotionRecord record) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.lightCyan.withValues(alpha: 0.1),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.lightCyan.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+    return AppCard(
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -273,12 +229,12 @@ class _AnalysisPageState extends State<AnalysisPage> {
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
                     color: AppColors.lightCyan.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: AppRadius.smB,
                   ),
                   child: Icon(
                     Icons.bar_chart_rounded,
                     size: 16,
-                    color: AppColors.lightCyan,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -299,7 +255,6 @@ class _AnalysisPageState extends State<AnalysisPage> {
             _buildEmotionBar('😌', '平静', record.calmness, AppColors.lightCyan),
             _buildEmotionBar('😔', '压抑', record.suppression, AppColors.warmBeige),
           ],
-        ),
       ),
     );
   }
@@ -358,7 +313,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
               '${(value * 100).toInt()}%',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontSize: 12,
-                    color: color.withValues(alpha: 0.85),
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
               textAlign: TextAlign.right,
             ),
@@ -371,25 +326,8 @@ class _AnalysisPageState extends State<AnalysisPage> {
   Widget _buildInterpretationCard(EmotionRecord record) {
     final hasAiAnalysis = record.interpretation.isNotEmpty;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.lightCyan.withValues(alpha: 0.1),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.lightCyan.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+    return AppCard(
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -407,12 +345,12 @@ class _AnalysisPageState extends State<AnalysisPage> {
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
                     color: AppColors.lightCyan.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: AppRadius.smB,
                   ),
                   child: Icon(
                     Icons.auto_awesome,
                     size: 16,
-                    color: AppColors.lightCyan,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -435,7 +373,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
                       ),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: AppRadius.smB,
                       border: const Border(
                         left: BorderSide(
                           color: AppColors.lightCyan,
@@ -447,7 +385,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
                       'AI深度分析',
                       style: TextStyle(
                         fontSize: 10,
-                        color: AppColors.lightCyan,
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -467,14 +405,13 @@ class _AnalysisPageState extends State<AnalysisPage> {
               child: Text(
                 '~ ~ ~',
                 style: TextStyle(
-                  color: AppColors.lightCyan.withValues(alpha: 0.2),
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 16,
                   letterSpacing: 8,
                 ),
               ),
             ),
           ],
-        ),
       ),
     );
   }
@@ -482,25 +419,8 @@ class _AnalysisPageState extends State<AnalysisPage> {
   Widget _buildComfortCard(EmotionRecord record) {
     final suggestions = _getComfortSuggestions(record);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.calmGreen.withValues(alpha: 0.1),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.calmGreen.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+    return AppCard(
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -518,12 +438,12 @@ class _AnalysisPageState extends State<AnalysisPage> {
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
                     color: AppColors.calmGreen.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: AppRadius.smB,
                   ),
                   child: Icon(
                     Icons.spa_outlined,
                     size: 16,
-                    color: AppColors.calmGreen,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -543,11 +463,8 @@ class _AnalysisPageState extends State<AnalysisPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     decoration: BoxDecoration(
                       color: AppColors.calmGreen.withValues(alpha: 0.04),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.calmGreen.withValues(alpha: 0.08),
-                        width: 1,
-                      ),
+                      borderRadius: AppRadius.smB,
+                      border: AppStroke.all(context),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -556,12 +473,12 @@ class _AnalysisPageState extends State<AnalysisPage> {
                           padding: const EdgeInsets.all(5),
                           decoration: BoxDecoration(
                             color: AppColors.calmGreen.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: AppRadius.smB,
                           ),
                           child: Icon(
                             Icons.favorite_border_rounded,
                             size: 14,
-                            color: AppColors.calmGreen,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -578,31 +495,13 @@ class _AnalysisPageState extends State<AnalysisPage> {
                   ),
                 )),
           ],
-        ),
       ),
     );
   }
 
   Widget _buildTrendCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.lightCyan.withValues(alpha: 0.1),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.lightCyan.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+    return AppCard(
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -620,12 +519,12 @@ class _AnalysisPageState extends State<AnalysisPage> {
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
                     color: AppColors.lightCyan.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: AppRadius.smB,
                   ),
                   child: Icon(
                     Icons.trending_up_rounded,
                     size: 16,
-                    color: AppColors.lightCyan,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -640,7 +539,6 @@ class _AnalysisPageState extends State<AnalysisPage> {
             const SizedBox(height: 18),
             _buildTrendChart(),
           ],
-        ),
       ),
     );
   }
@@ -684,14 +582,46 @@ class _AnalysisPageState extends State<AnalysisPage> {
     return suggestions;
   }
 
+  /// 每页展示的记录条数（翻页阈值与页容量共用）
+  static const _trendPageSize = 8;
+
   Widget _buildTrendChart() {
-    final recent = _records.take(7).toList().reversed.toList();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // _records 已在 _loadRecords 中过滤掉"分析中..."占位记录
+    final filtered = _records;
+
+    // ≤ 8 条：保持现状单图显示（不翻页、不显示指示器）
+    if (filtered.length <= _trendPageSize) {
+      return _buildTrendBars(filtered.reversed.toList());
+    }
+
+    // > 8 条：分页。_records 是时间倒序（最新在前），按 8 条切块得到
+    // [最新页, ..., 最早页]，再反转成时间正序页序列（最旧页在第 0 页）。
+    // initialPage = 最后一页 = 最新 8 条；向右滑（上一页）回到更早的页。
+    final chunks = <List<EmotionRecord>>[];
+    for (var i = 0; i < filtered.length; i += _trendPageSize) {
+      final end = math.min(i + _trendPageSize, filtered.length);
+      chunks.add(filtered.sublist(i, end));
+    }
+    final pages = chunks.reversed.toList();
+
+    return _PagedTrendChart(
+      // 页数变化时重建 State，让 PageController 的 initialPage 重新对准最新页
+      key: ValueKey('analysis_trend_pages_${pages.length}'),
+      pages: pages,
+      isDark: isDark,
+      chartBuilder: _buildTrendBars,
+    );
+  }
+
+  /// 单页/单图柱状趋势（records 为时间正序：最旧在左、最新在右）
+  Widget _buildTrendBars(List<EmotionRecord> records) {
     return SizedBox(
       height: 140,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: recent.map((r) {
+        children: records.map((r) {
           final emotionColors = {
             '悲伤': AppColors.softPink,
             '焦虑': AppColors.softOrange,
@@ -721,7 +651,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
                   r.dominantEmotion,
                   style: TextStyle(
                     fontSize: 10,
-                    color: dominantColor,
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -739,7 +669,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
                       dominantColor.withValues(alpha: 0.25),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: AppRadius.smB,
                 ),
               ),
               const SizedBox(height: 6),
@@ -751,6 +681,112 @@ class _AnalysisPageState extends State<AnalysisPage> {
           );
         }).toList(),
       ),
+    );
+  }
+}
+
+/// 「近期情绪趋势」分页容器。
+///
+/// [pages] 按时间正序排列（第 0 页最旧、最后一页最新），页内记录保持
+/// 时间倒序（最新在前），绘制时 reversed 使每页最旧在左、最新在右。
+/// initialPage 指向最后一页 → 默认展示最新记录；向右滑（上一页）看更早记录。
+class _PagedTrendChart extends StatefulWidget {
+  final List<List<EmotionRecord>> pages;
+  final bool isDark;
+  final Widget Function(List<EmotionRecord> records) chartBuilder;
+
+  const _PagedTrendChart({
+    super.key,
+    required this.pages,
+    required this.isDark,
+    required this.chartBuilder,
+  });
+
+  @override
+  State<_PagedTrendChart> createState() => _PagedTrendChartState();
+}
+
+class _PagedTrendChartState extends State<_PagedTrendChart> {
+  late final PageController _controller;
+  late int _current;
+
+  @override
+  void initState() {
+    super.initState();
+    _current = widget.pages.length - 1; // 默认停在最新页
+    _controller = PageController(initialPage: _current);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pageCount = widget.pages.length;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 140,
+          child: PageView.builder(
+            controller: _controller,
+            itemCount: pageCount,
+            onPageChanged: (i) => setState(() => _current = i),
+            // 页内 reversed：最旧在左、最新在右（与单图一致）
+            itemBuilder: (context, index) =>
+                widget.chartBuilder(widget.pages[index].reversed.toList()),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '左右滑动查看更多',
+          style: TextStyle(
+            fontSize: 10.5,
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.55),
+          ),
+        ),
+        const SizedBox(height: 6),
+        _buildDots(),
+      ],
+    );
+  }
+
+  /// 翻页指示器：active 实心、inactive 同色 alpha 0.25；
+  /// 页数过多时只显示当前页附近的点，保证单行不溢出。
+  Widget _buildDots() {
+    const maxVisible = 9;
+    const dotSize = 6.0;
+    const gap = 5.0;
+    final count = widget.pages.length;
+    var start = 0;
+    if (count > maxVisible) {
+      start = (_current - 3).clamp(0, count - maxVisible);
+    }
+    final end = math.min(count, start + maxVisible);
+    final ink = AppStroke.ink(isDark: widget.isDark, style: UiStyleScope.of(context));
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = start; i < end; i++)
+          Padding(
+            padding: EdgeInsets.only(right: i == end - 1 ? 0 : gap),
+            child: Container(
+              width: dotSize,
+              height: dotSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: i == _current ? ink : ink.withValues(alpha: 0.25),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

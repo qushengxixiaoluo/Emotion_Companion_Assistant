@@ -4,11 +4,14 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:get/get.dart';
+import '../../app/styles/app_styles.dart';
 import '../../app/themes/app_colors.dart';
 import '../../app/responsive/adaptive_content_wrapper.dart';
 import '../../models/emotion_models.dart';
 import '../../services/llm_service.dart';
 import '../../services/storage_service.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/lowpoly_background.dart';
 import '../../widgets/unified_config_dialog.dart';
 
 class DreamPage extends StatefulWidget {
@@ -245,20 +248,11 @@ class _DreamPageState extends State<DreamPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientColors = isDark
-        ? [AppColors.dreamyLavender.withOpacity(0.15), AppColors.darkBackground]
-        : [AppColors.dreamyLavender.withOpacity(0.06), AppColors.background];
-
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: gradientColors,
-          ),
-        ),
+      body: LowPolyBackground(
+        tint: AppColors.dreamyLavender,
+        tintAlpha: 0.06,
+        tintAlphaDark: 0.15,
         child: SafeArea(
           child: AdaptiveContentWrapper(
             child: CustomScrollView(
@@ -297,7 +291,7 @@ class _DreamPageState extends State<DreamPage> {
       title: Text(
         'AI梦境解读',
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: AppColors.hazeBlue,
+              color: Theme.of(context).colorScheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
       ),
@@ -317,12 +311,9 @@ class _DreamPageState extends State<DreamPage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.dreamyLavender.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.dreamyLavender.withOpacity(0.15),
-          width: 1,
-        ),
+        color: AppColors.dreamyLavender.withValues(alpha: 0.06),
+        borderRadius: AppRadius.cardB,
+        border: AppStroke.all(context),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -330,12 +321,12 @@ class _DreamPageState extends State<DreamPage> {
         children: [
           Row(
             children: [
-              const Icon(Icons.nightlight_round, size: 20, color: AppColors.dreamyLavender),
+              Icon(Icons.nightlight_round, size: 20, color: Theme.of(context).colorScheme.onSurface),
               const SizedBox(width: 8),
               Text(
                 '把梦说给我听',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: AppColors.dreamyLavender,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
               ),
             ],
@@ -350,20 +341,8 @@ class _DreamPageState extends State<DreamPage> {
             decoration: InputDecoration(
               hintText: '描述你的梦境……\n比如：我梦到自己在飞，天空是紫色的，还有一只会说话的猫……',
               hintStyle: Theme.of(context).textTheme.bodySmall,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.dreamyLavender.withOpacity(0.2)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: AppColors.dreamyLavender.withOpacity(0.15)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: AppColors.dreamyLavender, width: 1.5),
-              ),
               filled: true,
-              fillColor: Theme.of(context).cardColor.withOpacity(0.6),
+              fillColor: Theme.of(context).cardColor.withValues(alpha: 0.6),
               contentPadding: const EdgeInsets.all(14),
             ),
             onSubmitted: (_) => _submitDream(),
@@ -379,9 +358,6 @@ class _DreamPageState extends State<DreamPage> {
                 backgroundColor: AppColors.dreamyLavender,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
               ),
             ),
           ),
@@ -391,31 +367,25 @@ class _DreamPageState extends State<DreamPage> {
   }
 
   Widget _buildConfigPromptCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.dreamyLavender.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.dreamyLavender.withOpacity(0.15),
-          width: 1,
-        ),
-      ),
+    return AppCard(
+      color: AppColors.dreamyLavender.withValues(alpha: 0.06),
       padding: const EdgeInsets.all(24),
+      hardShadow: false,
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppColors.softOrange.withOpacity(0.08),
+              color: AppColors.softOrange.withValues(alpha: 0.08),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.settings_outlined, size: 32, color: AppColors.softOrange),
+            child: Icon(Icons.settings_outlined, size: 32, color: Theme.of(context).colorScheme.onSurface),
           ),
           const SizedBox(height: 16),
           Text(
             '请先配置大模型 API',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: AppColors.softOrange,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
           const SizedBox(height: 8),
@@ -435,9 +405,8 @@ class _DreamPageState extends State<DreamPage> {
             icon: const Icon(Icons.api, size: 18),
             label: const Text('去配置'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.softOrange,
+              foregroundColor: Theme.of(context).colorScheme.onSurface,
               side: const BorderSide(color: AppColors.softOrange),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ],
@@ -450,8 +419,8 @@ class _DreamPageState extends State<DreamPage> {
       margin: const EdgeInsets.symmetric(vertical: 16),
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        color: AppColors.dreamyLavender.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(20),
+        color: AppColors.dreamyLavender.withValues(alpha: 0.05),
+        borderRadius: AppRadius.cardB,
       ),
       child: Column(
         children: [
@@ -460,7 +429,7 @@ class _DreamPageState extends State<DreamPage> {
             height: 40,
             child: CircularProgressIndicator(
               strokeWidth: 3,
-              color: AppColors.dreamyLavender.withOpacity(0.7),
+              color: AppColors.dreamyLavender.withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 20),
@@ -488,10 +457,10 @@ class _DreamPageState extends State<DreamPage> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.softOrange.withOpacity(0.1),
+                color: AppColors.softOrange.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.cloud_off_outlined, size: 28, color: AppColors.softOrange),
+              child: Icon(Icons.cloud_off_outlined, size: 28, color: Theme.of(context).colorScheme.onSurface),
             ),
             const SizedBox(height: 12),
             Text(
@@ -511,9 +480,8 @@ class _DreamPageState extends State<DreamPage> {
                 _textController.text = _dreamText;
               },
               style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.dreamyLavender,
+                foregroundColor: Theme.of(context).colorScheme.onSurface,
                 side: const BorderSide(color: AppColors.dreamyLavender),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               child: const Text('重新输入'),
             ),
@@ -526,7 +494,6 @@ class _DreamPageState extends State<DreamPage> {
   Widget _buildResultCard() {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -538,17 +505,17 @@ class _DreamPageState extends State<DreamPage> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.dreamyLavender.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    color: AppColors.dreamyLavender.withValues(alpha: 0.1),
+                    borderRadius: AppRadius.smB,
                   ),
-                  child: const Icon(Icons.auto_awesome, color: AppColors.dreamyLavender, size: 18),
+                  child: Icon(Icons.auto_awesome, color: Theme.of(context).colorScheme.onSurface, size: 18),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     _resultTitle ?? '梦境解读',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: AppColors.dreamyLavender,
+                          color: Theme.of(context).colorScheme.onSurface,
                           fontWeight: FontWeight.w600,
                         ),
                   ),
@@ -558,10 +525,10 @@ class _DreamPageState extends State<DreamPage> {
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: AppColors.dreamyLavender.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(8),
+                      color: AppColors.dreamyLavender.withValues(alpha: 0.08),
+                      borderRadius: AppRadius.smB,
                     ),
-                    child: const Icon(Icons.add_comment_rounded, size: 16, color: AppColors.dreamyLavender),
+                    child: Icon(Icons.add_comment_rounded, size: 16, color: Theme.of(context).colorScheme.onSurface),
                   ),
                 ),
               ],
@@ -575,13 +542,13 @@ class _DreamPageState extends State<DreamPage> {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    AppColors.dreamyLavender.withOpacity(0.08),
-                    AppColors.dreamyLavender.withOpacity(0.02),
+                    AppColors.dreamyLavender.withValues(alpha: 0.08),
+                    AppColors.dreamyLavender.withValues(alpha: 0.02),
                   ],
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
                 ),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: AppRadius.smB,
                 border: const Border(
                   left: BorderSide(color: AppColors.dreamyLavender, width: 3),
                 ),
@@ -591,13 +558,13 @@ class _DreamPageState extends State<DreamPage> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.format_quote_rounded, size: 14, color: AppColors.dreamyLavender.withOpacity(0.5)),
+                      Icon(Icons.format_quote_rounded, size: 14, color: Theme.of(context).colorScheme.onSurface),
                       const SizedBox(width: 4),
                       Text(
                         '你的梦境',
                         style: TextStyle(
                           fontSize: 11,
-                          color: AppColors.dreamyLavender.withOpacity(0.7),
+                          color: Theme.of(context).colorScheme.onSurface,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 1,
                         ),
@@ -623,12 +590,12 @@ class _DreamPageState extends State<DreamPage> {
               selectable: true,
               styleSheet: MarkdownStyleSheet(
                 h1: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AppColors.dreamyLavender,
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.w700,
                       height: 1.4,
                     ),
                 h2: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: AppColors.dreamyLavender,
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontWeight: FontWeight.w600,
                       height: 1.4,
                     ),
@@ -644,8 +611,8 @@ class _DreamPageState extends State<DreamPage> {
                 listBullet: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.7),
                 listBulletPadding: const EdgeInsets.only(left: 4, right: 12, top: 4),
                 blockquoteDecoration: BoxDecoration(
-                  color: AppColors.dreamyLavender.withOpacity(0.04),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AppColors.dreamyLavender.withValues(alpha: 0.04),
+                  borderRadius: AppRadius.smB,
                   border: const Border(
                     left: BorderSide(color: AppColors.dreamyLavender, width: 3),
                   ),
@@ -654,14 +621,14 @@ class _DreamPageState extends State<DreamPage> {
                 horizontalRuleDecoration: BoxDecoration(
                   border: Border(
                     top: BorderSide(
-                      color: AppColors.dreamyLavender.withOpacity(0.2),
+                      color: AppColors.dreamyLavender.withValues(alpha: 0.2),
                       width: 1,
                     ),
                   ),
                 ),
                 codeblockDecoration: BoxDecoration(
-                  color: AppColors.dreamyLavender.withOpacity(0.04),
-                  borderRadius: BorderRadius.circular(10),
+                  color: AppColors.dreamyLavender.withValues(alpha: 0.04),
+                  borderRadius: AppRadius.smB,
                 ),
               ),
             ),
@@ -672,7 +639,7 @@ class _DreamPageState extends State<DreamPage> {
               child: Text(
                 '~ ~ ~',
                 style: TextStyle(
-                  color: AppColors.dreamyLavender.withOpacity(0.25),
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 16,
                   letterSpacing: 8,
                 ),
@@ -695,12 +662,12 @@ class _DreamPageState extends State<DreamPage> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 32),
             decoration: BoxDecoration(
-              color: Theme.of(context).cardColor.withOpacity(0.4),
-              borderRadius: BorderRadius.circular(16),
+              color: Theme.of(context).cardColor.withValues(alpha: 0.4),
+              borderRadius: AppRadius.mdB,
             ),
             child: Column(
               children: [
-                Icon(Icons.nightlight_outlined, size: 36, color: AppColors.dreamyLavender.withOpacity(0.3)),
+                Icon(Icons.nightlight_outlined, size: 36, color: Theme.of(context).colorScheme.onSurface),
                 const SizedBox(height: 12),
                 Text(
                   '还没有解读过梦境',
@@ -737,7 +704,7 @@ class _DreamPageState extends State<DreamPage> {
           width: 3,
           height: 16,
           decoration: BoxDecoration(
-            color: AppColors.dreamyLavender.withOpacity(0.4),
+            color: AppColors.dreamyLavender.withValues(alpha: 0.4),
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -751,7 +718,7 @@ class _DreamPageState extends State<DreamPage> {
           '${_history.length}',
           style: TextStyle(
             fontSize: 12,
-            color: AppColors.dreamyLavender.withOpacity(0.5),
+            color: Theme.of(context).colorScheme.onSurface,
           ),
         ),
         const Spacer(),
@@ -762,7 +729,7 @@ class _DreamPageState extends State<DreamPage> {
               '删除全部',
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.red.withOpacity(0.5),
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ),
@@ -775,25 +742,20 @@ class _DreamPageState extends State<DreamPage> {
       padding: const EdgeInsets.only(bottom: 8),
       child: GestureDetector(
         onTap: () => _viewHistoryItem(record),
-        child: Container(
+        child: AppCard(
           padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: AppColors.dreamyLavender.withOpacity(0.08),
-            ),
-          ),
+          radius: AppRadius.sm,
+          hardShadow: false,
           child: Row(
             children: [
               Container(
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: AppColors.dreamyLavender.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
+                  color: AppColors.dreamyLavender.withValues(alpha: 0.08),
+                  borderRadius: AppRadius.smB,
                 ),
-                child: const Icon(Icons.nightlight_round, size: 18, color: AppColors.dreamyLavender),
+                child: Icon(Icons.nightlight_round, size: 18, color: Theme.of(context).colorScheme.onSurface),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -833,7 +795,7 @@ class _DreamPageState extends State<DreamPage> {
                   const SizedBox(height: 4),
                   GestureDetector(
                     onTap: () => _deleteHistoryItem(record.id),
-                    child: Icon(Icons.close, size: 16, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
+                    child: Icon(Icons.close, size: 16, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
                   ),
                 ],
               ),

@@ -72,6 +72,7 @@ class ResponseAgent {
         baseUrl: _llm.baseUrl,
         apiKey: _llm.apiKey,
         model: _llm.model,
+        apiFormat: _llm.apiFormat,
       );
     } catch (e) {
       developer.log('【回复Agent】ReAct 异常: $e');

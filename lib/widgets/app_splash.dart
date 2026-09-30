@@ -1,5 +1,10 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import '../app/styles/app_styles.dart';
+import '../app/styles/ui_style.dart';
 import '../app/themes/app_colors.dart';
+import 'lowpoly_decor.dart';
 
 class AppSplash extends StatefulWidget {
   final Future<void> appInit;
@@ -92,8 +97,16 @@ class _AppSplashState extends State<AppSplash> with SingleTickerProviderStateMix
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: dark
-                  ? const [Color(0xFF1A1A2E), Color(0xFF162038), Color(0xFF131A2E)]
-                  : const [Color(0xFFF5F0EB), Color(0xFFF0E8E0), Color(0xFFEEE5DA)],
+                  ? const [
+                      AppColors.splashTopDark,
+                      AppColors.splashMidDark,
+                      AppColors.splashBotDark,
+                    ]
+                  : const [
+                      AppColors.splashTopLight,
+                      AppColors.splashMidLight,
+                      AppColors.splashBotLight,
+                    ],
             ),
           ),
           child: Stack(
@@ -112,14 +125,19 @@ class _AppSplashState extends State<AppSplash> with SingleTickerProviderStateMix
                           height: 100,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(22),
-                            color: (dark ? const Color(0xFF252540) : Colors.white).withValues(alpha: 0.9),
-                            boxShadow: [
-                              BoxShadow(
-                                color: (dark ? const Color(0xFF3A3A60) : AppColors.hazeBlue).withValues(alpha: 0.3),
-                                blurRadius: 30,
-                                offset: const Offset(0, 8),
-                              ),
-                            ],
+                            color: (dark ? AppColors.darkCard : Colors.white).withValues(alpha: 0.9),
+                            boxShadow: AppShadow.hard(context, dy: 4, alpha: 0.25),
+                          ),
+                          // 描边用 foreground：logo 图铺满 100x100，
+                          // 放 decoration 会被图片盖住
+                          foregroundDecoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: dark
+                                  ? AppColors.inkDark
+                                  : AppColors.inkLight,
+                              width: 2,
+                            ),
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(22),
@@ -239,6 +257,9 @@ class _DecoCircle extends StatefulWidget {
 
 class _DecoCircleState extends State<_DecoCircle>
     with SingleTickerProviderStateMixin {
+  /// 5 个装饰按 delay 轮换 3/4/5/6 边
+  static const List<int> _shardSides = [3, 4, 5, 6];
+
   late final AnimationController _ctrl;
 
   @override
@@ -261,18 +282,20 @@ class _DecoCircleState extends State<_DecoCircle>
 
   @override
   Widget build(BuildContext context) {
+    // delay 步进 0.3（0 / 0.3 / 0.6 / 0.9 / 1.2）→ 0..4 → 轮换 3/4/5/6 边
+    final sideIndex = (widget.delay / 0.3).round() % _shardSides.length;
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (context, child) {
         return Transform.translate(
           offset: Offset(0, -8 * _ctrl.value),
-          child: Container(
-            width: widget.size,
-            height: widget.size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: widget.color,
-            ),
+          child: GeometricShard(
+            color: widget.color,
+            size: widget.size,
+            sides: _shardSides[sideIndex],
+            // color 已带原透明度（亮 0.15 / 暗 0.25），
+            // GeometricShard 会用 fillAlpha 覆盖，故回传原 alpha
+            fillAlpha: widget.color.a,
           ),
         );
       },
@@ -310,8 +333,10 @@ class _LoadingDotsState extends State<_LoadingDots>
   @override
   Widget build(BuildContext context) {
     final dotColor = widget.isDarkMode
-        ? const Color(0xFF7B8BA0)
+        ? AppColors.splashDotDark
         : AppColors.hazeBlue;
+    final ink = AppStroke.ink(
+        isDark: widget.isDarkMode, style: UiStyleScope.of(context));
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (context, child) {
@@ -323,12 +348,19 @@ class _LoadingDotsState extends State<_LoadingDots>
             final opacity = 0.3 + 0.5 * (1 - (t - 0.5).abs() * 2);
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: dotColor.withValues(alpha: opacity),
+              // 8px 圆点 → 8px 菱形（45° 旋转的方块）
+              child: Transform.rotate(
+                angle: pi / 4,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: dotColor.withValues(alpha: opacity),
+                    border: Border.all(
+                      color: ink.withValues(alpha: opacity),
+                      width: 1,
+                    ),
+                  ),
                 ),
               ),
             );

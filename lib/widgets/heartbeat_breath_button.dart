@@ -1,6 +1,9 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../app/styles/app_styles.dart';
+import '../app/styles/ui_style.dart';
 import '../app/themes/app_colors.dart';
+import 'lowpoly_decor.dart';
 
 class HeartbeatBreathButton extends StatefulWidget {
   final VoidCallback onTap;
@@ -32,7 +35,7 @@ class _HeartbeatBreathButtonState extends State<HeartbeatBreathButton>
 
   @override
   Widget build(BuildContext context) {
-    final size = 180.0;
+    final size = 220.0;
 
     return GestureDetector(
       onTap: widget.onTap,
@@ -44,17 +47,20 @@ class _HeartbeatBreathButtonState extends State<HeartbeatBreathButton>
           final breathe = 1.0 + sin(t * 2 * pi) * 0.06;
 
           return SizedBox(
-            width: size + 40,
-            height: size + 40,
+            width: size + 56,
+            height: size + 56,
             child: Stack(
               alignment: Alignment.center,
               children: [
                 // 粒子层
                 CustomPaint(
-                  size: Size(size + 40, size + 40),
-                  painter: _BreathParticlesPainter(
+                  size: Size(size + 56, size + 56),
+                  painter: GeometricParticlesPainter(
                     progress: t,
                     breatheScale: breathe,
+                    isDark: Theme.of(context).brightness == Brightness.dark,
+                    seed: 42,
+                    style: UiStyleScope.of(context),
                   ),
                 ),
                 // 主按钮
@@ -71,33 +77,23 @@ class _HeartbeatBreathButtonState extends State<HeartbeatBreathButton>
           height: size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppColors.hazeBlue.withValues(alpha: 0.8),
-                AppColors.softPink.withValues(alpha: 0.6),
-              ],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.hazeBlue.withValues(alpha: 0.3),
-                blurRadius: 30,
-                offset: const Offset(0, 10),
-              ),
-            ],
+            // lowpoly 平涂：全饱和贴纸色 + 2px 黑描边，醒目不发虚
+            color: AppColors.softPink,
+            border: AppStroke.all(context),
+            boxShadow: AppShadow.hard(context, dy: 5, alpha: 0.35),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.favorite, color: AppColors.morandiRed, size: 36),
-              const SizedBox(height: 8),
+              // 白色爱心：按钮底为深粉贴纸色，同色系图标会撞色看不见
+              const Icon(Icons.favorite, color: Colors.white, size: 56),
+              const SizedBox(height: 10),
               Text(
                 '开始情绪倾诉',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
@@ -106,76 +102,4 @@ class _HeartbeatBreathButtonState extends State<HeartbeatBreathButton>
       ),
     );
   }
-}
-
-class _Particle {
-  final double angle;
-  final double orbitRadius;
-  final double speed;
-  final double size;
-  final double baseOpacity;
-  final double driftPhase;
-
-  _Particle({
-    required this.angle,
-    required this.orbitRadius,
-    required this.speed,
-    required this.size,
-    required this.baseOpacity,
-    required this.driftPhase,
-  });
-}
-
-class _BreathParticlesPainter extends CustomPainter {
-  final double progress;
-  final double breatheScale;
-
-  _BreathParticlesPainter({
-    required this.progress,
-    required this.breatheScale,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final rng = Random(42); // 固定种子保持粒子分布稳定
-    final particles = List.generate(10, (i) {
-      return _Particle(
-        angle: (i / 10) * 2 * pi + (rng.nextDouble() - 0.5) * 0.3,
-        orbitRadius: 80.0 + rng.nextDouble() * 20,
-        speed: 0.15 + rng.nextDouble() * 0.25,
-        size: 3.0 + rng.nextDouble() * 4.0,
-        baseOpacity: 0.3 + rng.nextDouble() * 0.4,
-        driftPhase: rng.nextDouble() * 2 * pi,
-      );
-    });
-
-    for (final p in particles) {
-      // 粒子绕行角度随时间和速度变化
-      final currentAngle = p.angle + progress * 2 * pi * p.speed;
-      // 呼吸漂移：粒子随呼吸节奏向外扩散再收回
-      final drift = sin(progress * 2 * pi + p.driftPhase) * 12;
-      final radius = p.orbitRadius + drift;
-      // 呼吸时粒子变大、更亮
-      final breatheBoost = (breatheScale - 1.0) * 8; // 呼吸时增强
-      final opacity = p.baseOpacity + breatheBoost * 0.3;
-
-      final x = center.dx + cos(currentAngle) * radius;
-      final y = center.dy + sin(currentAngle) * radius;
-
-      // 光点主体
-      final paint = Paint()
-        ..color = AppColors.hazeBlue.withValues(alpha: opacity.clamp(0.1, 0.7))
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-      canvas.drawCircle(Offset(x, y), p.size + breatheBoost, paint);
-
-      // 光点核心（更亮的小点）
-      final corePaint = Paint()
-        ..color = Colors.white.withValues(alpha: (opacity * 0.8).clamp(0.05, 0.5));
-      canvas.drawCircle(Offset(x, y), (p.size + breatheBoost) * 0.4, corePaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _BreathParticlesPainter oldDelegate) => true;
 }

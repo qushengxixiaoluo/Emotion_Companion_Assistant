@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app/styles/app_styles.dart';
 import '../app/themes/app_colors.dart';
 import '../models/llm_profile.dart';
 import '../services/llm_service.dart';
@@ -34,7 +35,6 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
               content: Text(message),
               backgroundColor: background,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               duration: const Duration(seconds: 2),
             ),
           );
@@ -124,7 +124,6 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
 
         return AlertDialog(
           surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
           titlePadding: EdgeInsets.zero,
           contentPadding: EdgeInsets.zero,
@@ -157,7 +156,7 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                         '管理多套大模型配置档案，点击即可切换',
                         style: TextStyle(
                           fontSize: 11,
-                          color: AppColors.textHint.withValues(alpha: 0.7),
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                     ],
@@ -187,7 +186,7 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                                 '配置加载失败，请重试',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: AppColors.textHint.withValues(alpha: 0.8),
+                                  color: Theme.of(context).colorScheme.onSurface,
                                 ),
                               ),
                             );
@@ -214,7 +213,7 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                               style: TextStyle(
                                 fontSize: 13,
                                 height: 1.6,
-                                color: AppColors.textHint.withValues(alpha: 0.8),
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
                           );
@@ -231,11 +230,10 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                                 color: isActive
                                     ? AppColors.hazeBlue.withValues(alpha: 0.08)
                                     : AppColors.textLight.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: AppRadius.smB,
                                 border: Border.all(
-                                  color: isActive
-                                      ? AppColors.hazeBlue.withValues(alpha: 0.4)
-                                      : AppColors.divider,
+                                  color: AppStroke.inkOf(context),
+                                  width: AppStroke.thin,
                                 ),
                               ),
                               child: Row(
@@ -267,7 +265,7 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                                                             ? FontWeight.w700
                                                             : FontWeight.w500,
                                                         color: isActive
-                                                            ? AppColors.warmBeige
+                                                            ? Theme.of(context).colorScheme.onSurface
                                                             : AppColors
                                                                 .textPrimary,
                                                       ),
@@ -280,7 +278,7 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                                                           TextOverflow.ellipsis,
                                                       style: TextStyle(
                                                         fontSize: 11,
-                                                        color: AppColors.textHint
+                                                        color: Theme.of(context).colorScheme.onSurface
                                                             .withValues(
                                                                 alpha: 0.9),
                                                       ),
@@ -288,12 +286,35 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                                                   ],
                                                 ),
                                               ),
+                                              // API 格式徽标
+                                              Container(
+                                                margin: const EdgeInsets.only(left: 6),
+                                                padding: const EdgeInsets.symmetric(
+                                                    horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  borderRadius:
+                                                      AppRadius.xsB,
+                                                  border:
+                                                      AppStroke.all(context),
+                                                ),
+                                                child: Text(
+                                                  p.apiFormat == 'anthropic'
+                                                      ? 'Anthropic'
+                                                      : 'OpenAI',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface,
+                                                  ),
+                                                ),
+                                              ),
                                               if (isActive) ...[
                                                 const SizedBox(width: 6),
-                                                const Icon(
+                                                Icon(
                                                   Icons.check,
                                                   size: 18,
-                                                  color: AppColors.calmGreen,
+                                                  color: Theme.of(context).colorScheme.onSurface,
                                                 ),
                                               ],
                                             ],
@@ -307,7 +328,7 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                                     icon: Icon(
                                       Icons.edit_outlined,
                                       size: 18,
-                                      color: AppColors.textHint,
+                                      color: Theme.of(context).colorScheme.onSurface,
                                     ),
                                     tooltip: '编辑',
                                     onPressed: () => openEditForm(p),
@@ -317,7 +338,7 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                                     icon: Icon(
                                       Icons.delete_outline,
                                       size: 18,
-                                      color: AppColors.softPink,
+                                      color: Theme.of(context).colorScheme.onSurface,
                                     ),
                                     tooltip: '删除',
                                     onPressed: () => deleteProfile(p),
@@ -346,9 +367,6 @@ Future<void> showLlmProfileManagerDialog(BuildContext context) async {
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.hazeBlue,
                         padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
                         elevation: 0,
                       ),
                     ),
@@ -391,6 +409,8 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
   late final TextEditingController _urlCtrl;
   late final TextEditingController _keyCtrl;
   late final TextEditingController _modelCtrl;
+  // API 格式：'openai'（OpenAI 兼容）| 'anthropic'（Anthropic 原生）
+  late String _apiFormat;
   bool _obscureKey = true;
 
   @override
@@ -400,6 +420,7 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
     _urlCtrl = TextEditingController(text: widget.initial.baseUrl);
     _keyCtrl = TextEditingController(text: widget.initial.apiKey);
     _modelCtrl = TextEditingController(text: widget.initial.model);
+    _apiFormat = widget.initial.apiFormat;
   }
 
   @override
@@ -420,6 +441,7 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
         baseUrl: _urlCtrl.text.trim(),
         apiKey: _keyCtrl.text.trim(),
         model: _modelCtrl.text.trim(),
+        apiFormat: _apiFormat,
       ),
     );
   }
@@ -428,7 +450,6 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       title: Text(
         widget.isEdit ? '编辑配置' : '新增配置',
@@ -452,11 +473,17 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
                       (v == null || v.trim().isEmpty) ? '请输入名称' : null,
                 ),
                 const SizedBox(height: 14),
+                _buildFieldLabel('API 格式'),
+                const SizedBox(height: 6),
+                _buildFormatSelector(),
+                const SizedBox(height: 14),
                 _buildFieldLabel('Base URL'),
                 const SizedBox(height: 6),
                 _buildField(
                   controller: _urlCtrl,
-                  hintText: 'https://api.deepseek.com/v1',
+                  hintText: _apiFormat == 'anthropic'
+                      ? 'https://api.anthropic.com'
+                      : 'https://api.deepseek.com/v1',
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? '请输入 Base URL' : null,
                 ),
@@ -473,7 +500,7 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
                           ? Icons.visibility_off_outlined
                           : Icons.visibility_outlined,
                       size: 18,
-                      color: AppColors.textHint,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                     onPressed: () =>
                         setState(() => _obscureKey = !_obscureKey),
@@ -484,7 +511,9 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
                 const SizedBox(height: 6),
                 _buildField(
                   controller: _modelCtrl,
-                  hintText: 'deepseek-chat / gpt-4o',
+                  hintText: _apiFormat == 'anthropic'
+                      ? 'claude-sonnet-4-5'
+                      : 'deepseek-chat / gpt-4o',
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? '请输入模型名' : null,
                 ),
@@ -503,7 +532,6 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.hazeBlue,
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             elevation: 0,
           ),
           child: const Text(
@@ -519,6 +547,52 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
     return Text(
       text,
       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+    );
+  }
+
+  /// API 格式二选一：OpenAI 兼容 / Anthropic 原生。
+  /// 选中态用统一 2px 描边（AppStroke.all），文字一律 onSurface。
+  Widget _buildFormatSelector() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.textHint.withValues(alpha: 0.05),
+        borderRadius: AppRadius.smB,
+      ),
+      padding: const EdgeInsets.all(3),
+      child: Row(
+        children: [
+          Expanded(child: _buildFormatOption('openai', 'OpenAI 兼容')),
+          Expanded(child: _buildFormatOption('anthropic', 'Anthropic 原生')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFormatOption(String value, String label) {
+    final selected = _apiFormat == value;
+    return GestureDetector(
+      onTap: () => setState(() => _apiFormat = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? Theme.of(context).colorScheme.surface
+              : Colors.transparent,
+          borderRadius: AppRadius.smB,
+          border: selected ? AppStroke.all(context) : null,
+          boxShadow:
+              selected ? AppShadow.hard(context, dy: 2, alpha: 0.20) : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ),
+      ),
     );
   }
 
@@ -538,34 +612,12 @@ class _ProfileFormDialogState extends State<_ProfileFormDialog> {
         hintText: hintText,
         hintStyle: TextStyle(
           fontSize: 13,
-          color: AppColors.textHint.withValues(alpha: 0.5),
+          color: Theme.of(context).colorScheme.onSurface,
         ),
         isDense: true,
         filled: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.divider),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.divider),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(
-            color: AppColors.hazeBlue.withValues(alpha: 0.4),
-            width: 1.2,
-          ),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.softPink),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.softPink),
-        ),
+        // 继承主题：2px ink 描边 / focused hazeBlue / error angerRed
         suffixIcon: suffixIcon,
       ),
       style: const TextStyle(fontSize: 13),
